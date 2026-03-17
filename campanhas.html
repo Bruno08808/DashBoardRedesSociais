@@ -1,0 +1,1223 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AdMetrics | Campanhas</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        .pill { padding:5px 12px; border-radius:999px; font-size:12px; font-weight:600; cursor:pointer; border:1px solid #e2e8f0; background:#fff; color:#64748b; transition:all 0.15s; }
+        .pill:hover { border-color:#cbd5e1; color:#334155; }
+        .pill.active { background:#eff6ff; border-color:#2563eb; color:#2563eb; }
+        .pill-rede { padding:4px 10px; border-radius:999px; font-size:11px; font-weight:600; cursor:pointer; border:1px solid #e2e8f0; background:#fff; color:#64748b; transition:all 0.15s; }
+        .pill-rede:hover { border-color:#cbd5e1; color:#334155; }
+        .pill-rede.active { background:#eff6ff; border-color:#2563eb; color:#2563eb; }
+        .swatch { width:26px; height:26px; border-radius:50%; cursor:pointer; border:2px solid transparent; transition:transform 0.15s,border-color 0.15s; flex-shrink:0; }
+        .swatch:hover { transform:scale(1.15); }
+        .swatch.selected { border-color:#0f172a; transform:scale(1.15); }
+        .tab-btn { padding:6px 18px; border-radius:8px; font-size:13px; font-weight:600; cursor:pointer; border:1px solid #e2e8f0; transition:all 0.15s; }
+        .tab-btn.active { background:#2563eb; color:#fff; border-color:#2563eb; }
+        .tab-btn.inactive { background:#fff; color:#64748b; }
+        .tab-btn.inactive:hover { border-color:#cbd5e1; color:#334155; }
+        .search-wrap { position:relative; }
+        .search-wrap svg { position:absolute; left:10px; top:50%; transform:translateY(-50%); pointer-events:none; }
+        .search-wrap input { padding-left:34px; }
+        /* ── Verdict card ── */
+        .verdict-excellent { background:linear-gradient(135deg,#f0fdf4,#dcfce7); border-color:#86efac; }
+        .verdict-ontarget  { background:linear-gradient(135deg,#fefce8,#fef9c3); border-color:#fde047; }
+        .verdict-under     { background:linear-gradient(135deg,#fff1f2,#ffe4e6); border-color:#fca5a5; }
+        /* ── Insight card ── */
+        .insight-item { display:flex; align-items:flex-start; gap:10px; padding:10px 12px; border-radius:8px; background:#f8fafc; border:1px solid #f1f5f9; font-size:13px; color:#475569; line-height:1.5; }
+        .insight-icon { flex-shrink:0; font-size:16px; margin-top:1px; }
+        /* ── Chart containers ── */
+        .chart-box { position:relative; width:100%; height:200px; }
+    </style>
+</head>
+<body class="min-h-screen">
+<div id="sidebar-container"></div>
+
+<!-- ══ LIST VIEW ══ -->
+<main id="view-list" class="ml-60 min-h-screen p-8 hidden">
+    <div class="flex items-center justify-between gap-4 mb-6">
+        <div>
+            <h2 class="text-2xl font-bold text-slate-900">Campanhas</h2>
+            <p class="text-slate-500 text-sm mt-0.5">Visão geral de todas as campanhas</p>
+        </div>
+        <div class="flex items-center gap-2">
+            <button onclick="exportCampanhasCSV()" class="text-xs px-3 py-2 bg-white border border-slate-200 hover:border-slate-300 text-slate-600 rounded-lg transition shadow-sm font-medium">↓ CSV</button>
+            <button id="btn-nova-camp" onclick="abrirModalCampanha()" class="hidden px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-lg transition shadow-sm">+ Nova Campanha</button>
+        </div>
+    </div>
+    <!-- Search -->
+    <div class="search-wrap mb-5 max-w-sm">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input type="text" id="camp-search" class="field" placeholder="Pesquisar campanhas..." oninput="campSearch=this.value;renderCampaignGrid()">
+    </div>
+    <div id="campaigns-grid" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+        <p class="text-slate-400 text-sm col-span-3">A carregar...</p>
+    </div>
+    <div id="pending-section" class="hidden mt-10">
+        <div class="flex items-center gap-4 mb-5">
+            <div class="flex-1 h-px bg-slate-200"></div>
+            <span class="text-xs text-slate-400 font-semibold uppercase tracking-wider">Pedidos de Acesso Admin</span>
+            <div class="flex-1 h-px bg-slate-200"></div>
+        </div>
+        <div id="pending-requests" class="card p-6 max-w-xl shadow-sm"><p class="text-slate-400 text-sm">A carregar...</p></div>
+    </div>
+</main>
+
+<!-- ══ DETAIL VIEW ══ -->
+<main id="view-detail" class="ml-60 min-h-screen p-8 hidden">
+    <div class="flex items-start gap-4 mb-6">
+        <button onclick="showList()" class="mt-1 p-2 rounded-lg bg-white border border-slate-200 hover:border-slate-300 text-slate-400 hover:text-slate-700 transition flex-shrink-0 shadow-sm">←</button>
+        <div class="flex-1 min-w-0">
+            <div class="flex items-center gap-3 flex-wrap">
+                <div id="detail-color-dot" class="w-3 h-3 rounded-full flex-shrink-0"></div>
+                <h2 id="detail-nome" class="text-2xl font-bold text-slate-900">—</h2>
+                <span id="detail-status" class="text-xs px-2 py-0.5 rounded-full font-semibold"></span>
+                <span id="detail-plataforma" class="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 font-medium"></span>
+            </div>
+            <p id="detail-datas" class="text-slate-400 text-sm mt-1"></p>
+            <p id="detail-descricao" class="text-slate-500 text-sm mt-0.5"></p>
+        </div>
+        <div id="admin-camp-btns" class="hidden flex gap-2">
+            <button onclick="abrirModalCampanha(currentCampId)" class="px-3 py-2 text-sm bg-white border border-slate-200 hover:border-slate-300 text-slate-600 rounded-lg transition shadow-sm">Editar</button>
+            <button onclick="confirmarEliminarCampanha()" class="px-3 py-2 text-sm bg-white border border-red-200 hover:border-red-400 text-red-500 hover:text-red-600 rounded-lg transition shadow-sm">Eliminar</button>
+        </div>
+    </div>
+
+    <!-- Timeline -->
+    <div class="card p-5 mb-5 shadow-sm">
+        <h3 class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Timeline</h3>
+        <div class="tl-wrap"><div id="detail-timeline"></div></div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="flex gap-1 p-1 bg-white border border-slate-200 rounded-xl mb-6 w-fit shadow-sm">
+        <button id="dtab-resumo" onclick="switchDetailTab('resumo')" class="tab-btn active">Resumo</button>
+        <button id="dtab-posts"  onclick="switchDetailTab('posts')"  class="tab-btn inactive">Posts</button>
+    </div>
+
+    <!-- ══ RESUMO ══ -->
+    <div id="tab-resumo">
+
+        <!-- ① Verdict banner -->
+        <div id="verdict-card" class="card p-5 shadow-sm mb-5 border-2 hidden">
+            <div class="flex items-center gap-4">
+                <span id="verdict-emoji" class="text-4xl leading-none"></span>
+                <div class="flex-1">
+                    <p id="verdict-label" class="text-lg font-bold text-slate-900"></p>
+                    <p id="verdict-sub"   class="text-sm text-slate-500 mt-0.5"></p>
+                </div>
+                <div class="text-right">
+                    <p id="verdict-pct"  class="text-3xl font-extrabold"></p>
+                    <p class="text-xs text-slate-400 mt-0.5">dos objetivos</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- ② KPI strip -->
+        <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-5">
+            <div class="card p-5 shadow-sm">
+                <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Posts</p>
+                <p id="res-posts" class="text-2xl font-bold text-slate-900 mt-2">—</p>
+            </div>
+            <div class="card p-5 shadow-sm">
+                <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Total Eng.</p>
+                <p id="res-total-eng" class="text-2xl font-bold text-slate-900 mt-2">—</p>
+                <p class="text-xs text-slate-400 mt-0.5">likes+coment.+part.</p>
+            </div>
+            <div class="card p-5 shadow-sm">
+                <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Eng. Médio/Post</p>
+                <p id="res-eng-rate" class="text-2xl font-bold text-slate-900 mt-2">—</p>
+                <p class="text-xs text-slate-400 mt-0.5">por post</p>
+            </div>
+            <div class="card p-5 shadow-sm">
+                <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Freq. Posts</p>
+                <p id="res-freq" class="text-2xl font-bold text-slate-900 mt-2">—</p>
+                <p class="text-xs text-slate-400 mt-0.5">dias entre posts</p>
+            </div>
+            <div class="card p-5 shadow-sm">
+                <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Duração</p>
+                <p id="res-duracao" class="text-2xl font-bold text-slate-900 mt-2">—</p>
+                <p class="text-xs text-slate-400 mt-0.5">dias</p>
+            </div>
+        </div>
+
+        <!-- ③ Seguidores + Budget -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-5">
+            <div class="card p-5 shadow-sm flex items-center gap-4">
+                <div class="w-10 h-10 rounded-full bg-blue-50 flex items-center justify-center text-blue-600 flex-shrink-0">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                </div>
+                <div>
+                    <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Seguidores Objetivo</p>
+                    <p id="res-seguidores" class="text-2xl font-bold text-slate-900 mt-1">—</p>
+                </div>
+            </div>
+            <div id="budget-card" class="hidden card p-5 shadow-sm">
+                <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Orçamento</p>
+                <div class="grid grid-cols-3 gap-4">
+                    <div><p class="text-xs text-slate-400">Budget</p><p id="b-budget" class="text-lg font-bold text-slate-900 mt-0.5">—</p></div>
+                    <div><p class="text-xs text-slate-400">Custo/Post</p><p id="b-cpp" class="text-lg font-bold text-slate-900 mt-0.5">—</p></div>
+                    <div><p class="text-xs text-slate-400">Eficiência</p><p id="b-eff" class="text-lg font-bold text-blue-600 mt-0.5">—</p><p class="text-xs text-slate-400">eng/€</p></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ④ Objetivos vs Realidade — Radials -->
+        <div class="card p-6 shadow-sm mb-5">
+            <h3 class="text-sm font-semibold text-slate-700 mb-6">Objetivos vs Realidade</h3>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <!-- Likes -->
+                <div class="flex flex-col items-center gap-3">
+                    <div class="relative w-32 h-32">
+                        <svg viewBox="0 0 120 120" class="w-full h-full -rotate-90">
+                            <circle cx="60" cy="60" r="50" fill="none" stroke="#f1f5f9" stroke-width="10"/>
+                            <circle id="ring-likes" cx="60" cy="60" r="50" fill="none" stroke="#2563eb" stroke-width="10"
+                                stroke-linecap="round" stroke-dasharray="314" stroke-dashoffset="314"
+                                style="transition:stroke-dashoffset 0.8s cubic-bezier(.4,0,.2,1)"/>
+                        </svg>
+                        <div class="absolute inset-0 flex flex-col items-center justify-center">
+                            <span id="pct-likes" class="text-xl font-bold text-slate-900">—</span>
+                            <span class="text-[10px] text-slate-400 font-semibold uppercase">Likes</span>
+                        </div>
+                    </div>
+                    <div class="text-center">
+                        <p class="text-sm font-bold text-slate-900"><span id="real-likes">0</span> <span class="font-normal text-slate-400 text-xs">/ <span id="obj-likes">0</span></span></p>
+                        <p class="text-xs text-slate-400 mt-0.5">real / objetivo</p>
+                    </div>
+                    <div class="w-full prog-bg"><div id="bar-likes" class="prog-fill" style="width:0%;background:#2563eb"></div></div>
+                </div>
+                <!-- Comentários -->
+                <div class="flex flex-col items-center gap-3">
+                    <div class="relative w-32 h-32">
+                        <svg viewBox="0 0 120 120" class="w-full h-full -rotate-90">
+                            <circle cx="60" cy="60" r="50" fill="none" stroke="#f1f5f9" stroke-width="10"/>
+                            <circle id="ring-comentarios" cx="60" cy="60" r="50" fill="none" stroke="#0891b2" stroke-width="10"
+                                stroke-linecap="round" stroke-dasharray="314" stroke-dashoffset="314"
+                                style="transition:stroke-dashoffset 0.8s cubic-bezier(.4,0,.2,1)"/>
+                        </svg>
+                        <div class="absolute inset-0 flex flex-col items-center justify-center">
+                            <span id="pct-comentarios" class="text-xl font-bold text-slate-900">—</span>
+                            <span class="text-[10px] text-slate-400 font-semibold uppercase">Coment.</span>
+                        </div>
+                    </div>
+                    <div class="text-center">
+                        <p class="text-sm font-bold text-slate-900"><span id="real-comentarios">0</span> <span class="font-normal text-slate-400 text-xs">/ <span id="obj-comentarios">0</span></span></p>
+                        <p class="text-xs text-slate-400 mt-0.5">real / objetivo</p>
+                    </div>
+                    <div class="w-full prog-bg"><div id="bar-comentarios" class="prog-fill" style="width:0%;background:#0891b2"></div></div>
+                </div>
+                <!-- Partilhas -->
+                <div class="flex flex-col items-center gap-3">
+                    <div class="relative w-32 h-32">
+                        <svg viewBox="0 0 120 120" class="w-full h-full -rotate-90">
+                            <circle cx="60" cy="60" r="50" fill="none" stroke="#f1f5f9" stroke-width="10"/>
+                            <circle id="ring-partilhas" cx="60" cy="60" r="50" fill="none" stroke="#059669" stroke-width="10"
+                                stroke-linecap="round" stroke-dasharray="314" stroke-dashoffset="314"
+                                style="transition:stroke-dashoffset 0.8s cubic-bezier(.4,0,.2,1)"/>
+                        </svg>
+                        <div class="absolute inset-0 flex flex-col items-center justify-center">
+                            <span id="pct-partilhas" class="text-xl font-bold text-slate-900">—</span>
+                            <span class="text-[10px] text-slate-400 font-semibold uppercase">Partilhas</span>
+                        </div>
+                    </div>
+                    <div class="text-center">
+                        <p class="text-sm font-bold text-slate-900"><span id="real-partilhas">0</span> <span class="font-normal text-slate-400 text-xs">/ <span id="obj-partilhas">0</span></span></p>
+                        <p class="text-xs text-slate-400 mt-0.5">real / objetivo</p>
+                    </div>
+                    <div class="w-full prog-bg"><div id="bar-partilhas" class="prog-fill" style="width:0%;background:#059669"></div></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ⑤ Insights automáticos -->
+        <div class="card p-6 shadow-sm mb-5">
+            <h3 class="text-sm font-semibold text-slate-700 mb-4">💡 Insights</h3>
+            <div id="insights-list" class="space-y-2">
+                <p class="text-slate-400 text-sm">A calcular…</p>
+            </div>
+        </div>
+
+        <!-- ⑥ Charts row -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-5">
+            <div class="card p-6 shadow-sm">
+                <h3 class="text-sm font-semibold text-slate-700 mb-4">Engagement ao longo do tempo</h3>
+                <div class="chart-box">
+                    <canvas id="engTimeChart"></canvas>
+                    <p id="eng-time-empty" class="hidden text-slate-400 text-sm text-center pt-16">Sem dados de datas suficientes.</p>
+                </div>
+            </div>
+            <div class="card p-6 shadow-sm">
+                <h3 class="text-sm font-semibold text-slate-700 mb-4">Engagement por tipo de conteúdo</h3>
+                <div class="chart-box">
+                    <canvas id="engTypeChart"></canvas>
+                    <p id="eng-type-empty" class="hidden text-slate-400 text-sm text-center pt-16">Sem dados de tipo suficientes.</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- ⑦ Campaign timeline with post markers -->
+        <div class="card p-5 shadow-sm mb-5">
+            <h3 class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Posts durante a campanha</h3>
+            <div class="tl-wrap"><div id="resumo-timeline-container"></div></div>
+        </div>
+
+        <!-- ⑧ Post ranking -->
+        <div class="card p-6 shadow-sm mb-5">
+            <div class="flex items-center justify-between mb-4">
+                <div>
+                    <h3 class="text-sm font-semibold text-slate-700">Ranking de Posts</h3>
+                    <p class="text-xs text-slate-400 mt-0.5">Ordenado por engagement total · comparado com a média da campanha</p>
+                </div>
+            </div>
+            <div id="post-ranking" class="space-y-2"></div>
+        </div>
+
+        <!-- ⑨ Engagement chart posts side by side -->
+        <div class="card p-6 shadow-sm mb-6">
+            <h3 class="text-sm font-semibold text-slate-700 mb-4">Likes · Comentários · Partilhas por post</h3>
+            <div class="chart-box" style="height:240px;">
+                <canvas id="postChart"></canvas>
+                <p id="chart-empty" class="hidden text-slate-400 text-sm text-center pt-20">Sem posts com dados de engagement.</p>
+            </div>
+        </div>
+
+    </div><!-- /tab-resumo -->
+
+    <!-- ══ POSTS ══ -->
+    <div id="tab-posts" class="hidden">
+        <div class="flex flex-wrap items-center gap-2 mb-5">
+            <div id="btn-novo-post-wrap" class="hidden">
+                <button onclick="abrirModalPost()" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-lg transition shadow-sm">+ Novo Post</button>
+            </div>
+            <!-- Sort -->
+            <div class="flex gap-1 flex-wrap">
+                <button class="pill active" id="sf-data"        onclick="setSort('data')">Data</button>
+                <button class="pill"        id="sf-score"       onclick="setSort('score')">Score</button>
+                <button class="pill"        id="sf-likes"       onclick="setSort('likes')">Likes</button>
+                <button class="pill"        id="sf-comentarios" onclick="setSort('comentarios')">Coment.</button>
+                <button class="pill"        id="sf-partilhas"   onclick="setSort('partilhas')">Partilhas</button>
+            </div>
+            <!-- Search + export -->
+            <div class="flex items-center gap-2 ml-auto">
+                <div class="search-wrap">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                    <input type="text" class="field" style="width:180px;font-size:13px;" placeholder="Pesquisar posts..." oninput="postSearch=this.value;renderPosts()">
+                </div>
+                <button onclick="exportPostsCSV()" class="text-xs px-3 py-2 bg-white border border-slate-200 hover:border-slate-300 text-slate-600 rounded-lg transition shadow-sm font-medium">↓ CSV</button>
+            </div>
+        </div>
+        <p class="text-xs text-slate-400 mb-4">Clica num post para ver as métricas por rede.</p>
+        <div id="posts-list" class="space-y-3"><p class="text-slate-400 text-sm">A carregar...</p></div>
+    </div>
+</main>
+
+<!-- ══ POST DETAIL OVERLAY ══ -->
+<div id="post-overlay" class="hidden fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onclick="fecharPostOverlay(event)">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation()">
+        <div class="flex items-start justify-between p-6 border-b border-slate-100">
+            <div>
+                <div id="ov-tipo-badge" class="inline-flex items-center gap-1.5 text-xs px-2 py-0.5 rounded-md font-medium mb-2"></div>
+                <h3 id="ov-nome" class="text-xl font-bold text-slate-900"></h3>
+                <p id="ov-data" class="text-sm text-slate-400 mt-0.5"></p>
+                <p id="ov-descricao" class="text-sm text-slate-500 mt-1"></p>
+            </div>
+            <div class="flex items-center gap-2 flex-shrink-0 ml-4">
+                <div id="ov-admin-btns" class="hidden flex gap-2"></div>
+                <button onclick="fecharPostOverlay()" class="p-2 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition text-xl leading-none">✕</button>
+            </div>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-0 divide-y md:divide-y-0 md:divide-x divide-slate-100">
+            <div id="ov-card-ig" class="p-6"></div>
+            <div id="ov-card-fb" class="p-6"></div>
+        </div>
+        <div id="ov-drive-wrap" class="hidden px-6 pb-6">
+            <a id="ov-drive-link" href="#" target="_blank" class="inline-flex items-center gap-2 text-xs px-3 py-2 bg-slate-50 hover:bg-slate-100 border border-slate-200 text-blue-600 rounded-lg transition font-medium">📁 Ver no Drive</a>
+        </div>
+    </div>
+</div>
+
+<!-- ══ MODAL: Campanha ══ -->
+<div id="modal-campanha" class="hidden fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-xl w-full max-w-lg p-8 relative max-h-[90vh] overflow-y-auto">
+        <button onclick="fecharModalCampanha()" class="absolute top-4 right-4 text-slate-400 hover:text-slate-700 text-xl leading-none">✕</button>
+        <h3 id="modal-camp-title" class="text-lg font-bold text-slate-900 mb-6">Nova Campanha</h3>
+        <div class="space-y-4">
+            <div><label class="text-xs font-semibold text-slate-500 uppercase block mb-1">Nome</label><input type="text" id="mc_nome" class="field" placeholder="Ex: Lançamento Verão"></div>
+            <div><label class="text-xs font-semibold text-slate-500 uppercase block mb-1">Descrição</label><textarea id="mc_descricao" class="field" rows="2" placeholder="Objetivo da campanha..."></textarea></div>
+            <div class="grid grid-cols-2 gap-3">
+                <div><label class="text-xs font-semibold text-slate-500 uppercase block mb-1">Plataforma</label><select id="mc_plataforma" class="field"><option>Instagram</option><option>Facebook</option><option>Ambas</option></select></div>
+                <div><label class="text-xs font-semibold text-slate-500 uppercase block mb-1">Status</label><select id="mc_status" class="field"><option>Ativa</option><option>Inativa</option></select></div>
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+                <div><label class="text-xs font-semibold text-slate-500 uppercase block mb-1">Data Início</label><input type="date" id="mc_data_inicio" class="field"></div>
+                <div><label class="text-xs font-semibold text-slate-500 uppercase block mb-1">Data Fim</label><input type="date" id="mc_data_fim" class="field"></div>
+            </div>
+            <div>
+                <label class="text-xs font-semibold text-slate-500 uppercase block mb-2">Cor da Campanha</label>
+                <div class="flex items-center gap-3 flex-wrap">
+                    <div id="color-swatches" class="flex gap-2 flex-wrap"></div>
+                    <input type="color" id="mc_cor_custom" class="field" style="width:44px;height:36px;padding:3px 4px;cursor:pointer;" onchange="selectCustomColor(this.value)">
+                </div>
+                <input type="hidden" id="mc_cor" value="#2563eb">
+            </div>
+            <p class="text-xs font-semibold text-slate-400 uppercase pt-1 border-t border-slate-100">Objetivos</p>
+            <div class="grid grid-cols-3 gap-3">
+                <div><label class="text-[10px] text-slate-400 block mb-1">❤️ Likes</label><input type="number" id="mc_likes_obj" class="field" placeholder="0" min="0"></div>
+                <div><label class="text-[10px] text-slate-400 block mb-1">💬 Comentários</label><input type="number" id="mc_comentarios_obj" class="field" placeholder="0" min="0"></div>
+                <div><label class="text-[10px] text-slate-400 block mb-1">🔁 Partilhas</label><input type="number" id="mc_partilhas_obj" class="field" placeholder="0" min="0"></div>
+            </div>
+            <div><label class="text-[10px] text-slate-400 block mb-1">👥 Seguidores objetivo</label><input type="number" id="mc_seguidores_obj" class="field" placeholder="0" min="0"></div>
+            <p class="text-xs font-semibold text-slate-400 uppercase pt-1 border-t border-slate-100">Orçamento <span class="text-slate-300 font-normal">(opcional)</span></p>
+            <div class="grid grid-cols-2 gap-3">
+                <div><label class="text-[10px] text-slate-400 block mb-1">💰 Budget total (€)</label><input type="number" id="mc_budget" class="field" placeholder="0.00" min="0" step="0.01"></div>
+                <div><label class="text-[10px] text-slate-400 block mb-1">📝 Custo por post (€)</label><input type="number" id="mc_cost_per_post" class="field" placeholder="0.00" min="0" step="0.01"></div>
+            </div>
+            <button onclick="guardarCampanha()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 rounded-lg transition text-sm">Guardar</button>
+            <p id="modal-camp-msg" class="text-sm text-center hidden"></p>
+        </div>
+    </div>
+</div>
+
+<!-- ══ MODAL: Post ══ -->
+<div id="modal-post" class="hidden fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-xl w-full max-w-lg p-8 relative max-h-[90vh] overflow-y-auto">
+        <button onclick="fecharModalPost()" class="absolute top-4 right-4 text-slate-400 hover:text-slate-700 text-xl leading-none">✕</button>
+        <h3 id="modal-post-title" class="text-lg font-bold text-slate-900 mb-6">Novo Post</h3>
+        <div class="space-y-4">
+            <div class="grid grid-cols-3 gap-3">
+                <div><label class="text-xs font-semibold text-slate-500 uppercase block mb-1">Nome</label><input type="text" id="mp_nome" class="field" placeholder="Post #1"></div>
+                <div><label class="text-xs font-semibold text-slate-500 uppercase block mb-1">Tipo</label><select id="mp_tipo" class="field"><option>Post</option><option>Reel</option><option>Story</option><option>Carrossel</option><option>Live</option></select></div>
+                <div><label class="text-xs font-semibold text-slate-500 uppercase block mb-1">Rede</label><select id="mp_rede" class="field"><option>Instagram</option><option>Facebook</option></select></div>
+            </div>
+            <div><label class="text-xs font-semibold text-slate-500 uppercase block mb-1">Notas</label><textarea id="mp_descricao" class="field" rows="2" placeholder="Notas sobre o criativo..."></textarea></div>
+            <div><label class="text-xs font-semibold text-slate-500 uppercase block mb-1">Link Drive</label><input type="url" id="mp_drive_link" class="field" placeholder="https://drive.google.com/..."></div>
+            <div><label class="text-xs font-semibold text-slate-500 uppercase block mb-1">Data de Publicação</label><input type="date" id="mp_data_publicacao" class="field"></div>
+            <p class="text-xs font-semibold text-slate-400 uppercase pt-1 border-t border-slate-100">Objetivos</p>
+            <div class="grid grid-cols-3 gap-3">
+                <div><label class="text-[10px] text-slate-400 block mb-1">❤️ Likes</label><input type="number" id="mp_likes_obj" class="field" placeholder="0" min="0"></div>
+                <div><label class="text-[10px] text-slate-400 block mb-1">💬 Comentários</label><input type="number" id="mp_comentarios_obj" class="field" placeholder="0" min="0"></div>
+                <div><label class="text-[10px] text-slate-400 block mb-1">🔁 Partilhas</label><input type="number" id="mp_partilhas_obj" class="field" placeholder="0" min="0"></div>
+            </div>
+            <p class="text-xs font-semibold text-slate-400 uppercase pt-1 border-t border-slate-100">Resultados Reais</p>
+            <div class="grid grid-cols-3 gap-3">
+                <div><label class="text-[10px] text-slate-400 block mb-1">❤️ Likes</label><input type="number" id="mp_likes_real" class="field" placeholder="0" min="0"></div>
+                <div><label class="text-[10px] text-slate-400 block mb-1">💬 Comentários</label><input type="number" id="mp_comentarios_real" class="field" placeholder="0" min="0"></div>
+                <div><label class="text-[10px] text-slate-400 block mb-1">🔁 Partilhas</label><input type="number" id="mp_partilhas_real" class="field" placeholder="0" min="0"></div>
+            </div>
+            <button onclick="guardarPost()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 rounded-lg transition text-sm">Guardar Post</button>
+            <p id="modal-post-msg" class="text-sm text-center hidden"></p>
+        </div>
+    </div>
+</div>
+
+<!-- ══ MODAL: Eliminar ══ -->
+<div id="modal-delete" class="hidden fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-xl w-full max-w-sm p-8">
+        <h3 class="text-lg font-bold text-slate-900 mb-2">Eliminar Campanha</h3>
+        <p class="text-slate-500 text-sm mb-1">Tens a certeza? Esta ação é irreversível.</p>
+        <p class="text-red-500 text-sm mb-6 font-medium">Todos os posts desta campanha também serão eliminados.</p>
+        <div class="flex gap-3">
+            <button onclick="fecharModalDelete()" class="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-semibold rounded-lg transition">Cancelar</button>
+            <button onclick="eliminarCampanha()" class="flex-1 py-2.5 bg-red-600 hover:bg-red-700 text-white text-sm font-semibold rounded-lg transition">Eliminar</button>
+        </div>
+    </div>
+</div>
+
+<script src="supabase.js"></script>
+<script src="auth.js"></script>
+<script src="nav.js"></script>
+<script>
+    Chart.defaults.color = "#94a3b8"; Chart.defaults.borderColor = "#f1f5f9";
+    const scaleOpts = { ticks:{color:"#94a3b8"}, grid:{color:"#f1f5f9"} };
+    const PRESET_COLORS = ["#2563eb","#0891b2","#059669","#d97706","#dc2626","#7c3aed","#db2777","#65a30d","#ea580c","#0284c7"];
+    const calcScore = p => ((p.likes_real||0)*2)+((p.comentarios_real||0)*3.5)+((p.partilhas_real||0)*4.5);
+
+    let isAdmin=false, currentCampId=null, editingCampId=null, editingPostId=null;
+    let postChart=null, selectedColor="#2563eb";
+    let currentPosts=[], redeFilter="all", sortFilter="data", allCamps=[];
+    let campsListData=[], campSearch='', postSearch='';
+
+    function exportToCSV(data, filename) {
+        if (!data||!data.length) { showToast('Sem dados para exportar.', true); return; }
+        const keys=Object.keys(data[0]);
+        const csv=[keys.join(','),...data.map(r=>keys.map(k=>`"${String(r[k]??'').replace(/"/g,'""')}"`).join(','))].join('\n');
+        Object.assign(document.createElement('a'),{href:'data:text/csv;charset=utf-8,'+encodeURIComponent('\uFEFF'+csv),download:filename}).click();
+    }
+
+    function exportCampanhasCSV() {
+        exportToCSV(campsListData.map(c=>({nome:c.nome,plataforma:c.plataforma,status:c.status||'Ativa',data_inicio:c.data_inicio||'',data_fim:c.data_fim||'',likes_obj:c.likes_objetivo||0,comentarios_obj:c.comentarios_objetivo||0,partilhas_obj:c.partilhas_objetivo||0,seguidores_obj:c.seguidores_objetivo||0,budget:c.budget||'',cost_per_post:c.cost_per_post||''})),'campanhas.csv');
+    }
+
+    function exportPostsCSV() {
+        exportToCSV(currentPosts.map(p=>({nome:p.nome,tipo:p.tipo||'Post',rede:p.rede||'Instagram',data_publicacao:p.data_publicacao||'',likes_obj:p.likes_objetivo||0,likes_real:p.likes_real||0,comentarios_obj:p.comentarios_objetivo||0,comentarios_real:p.comentarios_real||0,partilhas_obj:p.partilhas_objetivo||0,partilhas_real:p.partilhas_real||0,score:calcScore(p).toFixed(1)})),`posts_${currentCampId}.csv`);
+    }
+
+    // ── INIT ───────────────────────────────────────────────────
+    async function init() {
+        const profile = await getUserProfile(); if (!profile) return;
+        isAdmin = profile.role==="admin";
+        buildSidebar("campanhas.html", profile.role);
+        buildColorSwatches();
+        if (isAdmin) { document.getElementById("btn-nova-camp").classList.remove("hidden"); document.getElementById("pending-section").classList.remove("hidden"); carregarPedidos(); }
+        const {data} = await supabaseClient.from("campanhas").select("id,nome,cor,data_inicio,data_fim,status").order("data_inicio");
+        allCamps = data||[];
+        const params = new URLSearchParams(window.location.search);
+        const id = params.get("id");
+        if (id) showDetail(Number(id)); else showList();
+    }
+
+    function buildColorSwatches() {
+        document.getElementById("color-swatches").innerHTML = PRESET_COLORS.map(c=>`<div class="swatch ${c===selectedColor?"selected":""}" style="background:${c}" onclick="selectColor('${c}')"></div>`).join("");
+    }
+    function selectColor(c) { selectedColor=c; document.getElementById("mc_cor").value=c; document.getElementById("mc_cor_custom").value=c; document.querySelectorAll(".swatch").forEach(el=>el.classList.toggle("selected",el.style.background===c||el.style.backgroundColor===c)); }
+    function selectCustomColor(c) { selectedColor=c; document.getElementById("mc_cor").value=c; document.querySelectorAll(".swatch").forEach(el=>el.classList.remove("selected")); }
+
+    // ── LIST ───────────────────────────────────────────────────
+    function showList() {
+        document.getElementById("view-list").classList.remove("hidden");
+        document.getElementById("view-detail").classList.add("hidden");
+        window.history.replaceState({},"","campanhas.html");
+        carregarCampanhas();
+    }
+
+    async function carregarCampanhas() {
+        const {data} = await supabaseClient.from("campanhas").select("*,posts(id,likes_real,comentarios_real,partilhas_real,likes_objetivo,comentarios_objetivo,partilhas_objetivo)").order("created_at",{ascending:false});
+        campsListData = data||[];
+        renderCampaignGrid();
+    }
+
+    function renderCampaignGrid() {
+        const grid = document.getElementById("campaigns-grid");
+        const q = campSearch.toLowerCase();
+        const filtered = q ? campsListData.filter(c=>c.nome.toLowerCase().includes(q)) : campsListData;
+        if (!filtered.length) {
+            grid.innerHTML = campSearch
+                ? `<div class="col-span-3 text-center py-12 text-slate-400"><p class="text-3xl mb-2">🔍</p><p class="text-sm">Nenhuma campanha para "<strong>${campSearch}</strong>".</p></div>`
+                : `<div class="col-span-3 text-center py-12 text-slate-400"><p class="text-3xl mb-2">🚀</p><p class="text-sm">Sem campanhas criadas ainda.</p></div>`;
+            return;
+        }
+        grid.innerHTML = filtered.map(c => {
+            const ps=c.posts||[];
+            const rL=ps.reduce((a,b)=>a+(b.likes_real||0),0),rC=ps.reduce((a,b)=>a+(b.comentarios_real||0),0),rP=ps.reduce((a,b)=>a+(b.partilhas_real||0),0);
+            const oT=(c.likes_objetivo||0)+(c.comentarios_objetivo||0)+(c.partilhas_objetivo||0),rT=rL+rC+rP;
+            const suc=oT>0?Math.round((rT/oT)*100):null;
+            const cor=c.cor||"#2563eb";
+            const di=c.data_inicio?new Date(c.data_inicio).toLocaleDateString("pt-PT"):"—";
+            const df=c.data_fim?new Date(c.data_fim).toLocaleDateString("pt-PT"):"—";
+            const sCls=c.status==="Ativa"?"bg-emerald-50 text-emerald-700 border border-emerald-200":"bg-slate-100 text-slate-500";
+            // verdict badge for card
+            let verdictBadge = "";
+            if (suc !== null) {
+                if (suc >= 120) verdictBadge = `<span class="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold">🟢 Excelente</span>`;
+                else if (suc >= 80) verdictBadge = `<span class="text-[10px] px-1.5 py-0.5 rounded-full bg-yellow-50 text-yellow-700 border border-yellow-200 font-semibold">🟡 No target</span>`;
+                else verdictBadge = `<span class="text-[10px] px-1.5 py-0.5 rounded-full bg-red-50 text-red-700 border border-red-200 font-semibold">🔴 Abaixo</span>`;
+            }
+            return `<div onclick="showDetail(${c.id})" class="card p-6 cursor-pointer hover:shadow-md transition-shadow group" style="border-top:3px solid ${cor}">
+                <div class="flex items-start justify-between mb-2">
+                    <h3 class="text-base font-bold text-slate-900 group-hover:text-blue-600 transition truncate pr-2">${c.nome}</h3>
+                    <span class="text-xs px-2 py-0.5 rounded-full font-medium flex-shrink-0 ${sCls}">${c.status||"Ativa"}</span>
+                </div>
+                <p class="text-xs text-slate-400 mb-3">${c.plataforma} · ${di} → ${df}</p>
+                ${suc !== null ? `<div class="mb-3">${verdictBadge}</div>` : ""}
+                <div class="grid grid-cols-3 gap-2 mb-4 text-center">
+                    <div><p class="text-lg font-bold text-slate-900">${ps.length}</p><p class="text-[10px] text-slate-400 uppercase font-semibold mt-0.5">Posts</p></div>
+                    <div><p class="text-lg font-bold text-slate-900">${c.seguidores_objetivo||"—"}</p><p class="text-[10px] text-slate-400 uppercase font-semibold mt-0.5">Seg. obj.</p></div>
+                    <div><p class="text-lg font-bold" style="color:${suc!=null?cor:"#94a3b8"}">${suc!=null?Math.min(suc,999)+"%":"—"}</p><p class="text-[10px] text-slate-400 uppercase font-semibold mt-0.5">Objetivos</p></div>
+                </div>
+                <div class="prog-bg"><div class="prog-fill" style="width:${suc!=null?Math.min(suc,100):0}%;background:${cor}"></div></div>
+            </div>`;
+        }).join("");
+    }
+
+    // ── DETAIL ─────────────────────────────────────────────────
+    async function showDetail(id) {
+        currentCampId=id; redeFilter="all"; sortFilter="data"; postSearch='';
+        document.getElementById("view-list").classList.add("hidden");
+        document.getElementById("view-detail").classList.remove("hidden");
+        window.history.replaceState({},"",`campanhas.html?id=${id}`);
+        if (isAdmin) { document.getElementById("admin-camp-btns").classList.remove("hidden"); document.getElementById("btn-novo-post-wrap").classList.remove("hidden"); }
+        const {data:camp} = await supabaseClient.from("campanhas").select("*").eq("id",id).single();
+        if (!camp) return;
+        const cor=camp.cor||"#2563eb";
+        document.getElementById("detail-color-dot").style.background=cor;
+        document.getElementById("detail-nome").textContent=camp.nome;
+        document.getElementById("detail-descricao").textContent=camp.descricao||"";
+        document.getElementById("detail-plataforma").textContent=camp.plataforma;
+        const se=document.getElementById("detail-status"); se.textContent=camp.status||"Ativa";
+        se.className=`text-xs px-2 py-0.5 rounded-full font-semibold ${camp.status==="Ativa"?"bg-emerald-50 text-emerald-700 border border-emerald-200":"bg-slate-100 text-slate-500"}`;
+        const di=camp.data_inicio?new Date(camp.data_inicio).toLocaleDateString("pt-PT"):"—";
+        const df=camp.data_fim?new Date(camp.data_fim).toLocaleDateString("pt-PT"):"—";
+        document.getElementById("detail-datas").textContent=`${di} → ${df}`;
+        renderDetailTimeline(camp);
+        switchDetailTab("resumo");
+        await carregarResumo(camp);
+        await carregarPostsAll(id);
+    }
+
+    function renderDetailTimeline(camp) {
+        const cor=camp.cor||"#2563eb", today=new Date(); today.setHours(0,0,0,0);
+        const BACK=10,FWD=10,TOTAL=BACK+1+FWD;
+        const days=Array.from({length:TOTAL},(_,i)=>{const d=new Date(today);d.setDate(d.getDate()-BACK+i);return d;});
+        const cs=camp.data_inicio?new Date(camp.data_inicio):null,ce=camp.data_fim?new Date(camp.data_fim):null;
+        const grid=document.createElement("div"); grid.className="tl-grid"; grid.style.gridTemplateColumns=`repeat(${TOTAL},minmax(0,1fr))`;
+        days.forEach(d=>{
+            const isT=d.getTime()===today.getTime(); const cell=document.createElement("div");
+            if(isT){cell.style.background="rgba(37,99,235,0.04)";cell.style.borderLeft="1px solid rgba(37,99,235,0.2)";cell.style.borderRight="1px solid rgba(37,99,235,0.2)";}
+            const lbl=document.createElement("div"); lbl.className="tl-day-label"+(isT?" today":"");
+            const dd=d.getDate().toString().padStart(2,"0"),mm=(d.getMonth()+1).toString().padStart(2,"0");
+            lbl.textContent=isT?"Hoje":`${dd}/${mm}`; cell.appendChild(lbl); grid.appendChild(cell);
+        });
+        days.forEach((d,idx)=>{
+            const cell=document.createElement("div"); const inR=(!cs||d>=cs)&&(!ce||d<=ce);
+            if(inR){
+                const iF=idx===0||(cs&&d.getTime()===cs.getTime()),iL=idx===days.length-1||(ce&&d.getTime()===ce.getTime());
+                const bar=document.createElement("div"); bar.className="tl-bar"; bar.style.background=cor;
+                bar.style.opacity=camp.status==="Inativa"?"0.4":"1";
+                bar.style.borderRadius=iF&&iL?"4px":iF?"4px 0 0 4px":iL?"0 4px 4px 0":"0";
+                if(iF) bar.textContent=camp.nome; cell.appendChild(bar);
+            } else { const g=document.createElement("div"); g.className="tl-gap"; cell.appendChild(g); }
+            grid.appendChild(cell);
+        });
+        const cont=document.getElementById("detail-timeline"); cont.innerHTML=""; cont.appendChild(grid);
+    }
+
+    // ── RESUMO (improved) ──────────────────────────────────────
+    async function carregarResumo(camp) {
+        const {data:posts} = await supabaseClient.from("posts").select("*").eq("campanha_id", camp.id);
+        const ps  = posts || [];
+        const cor = camp.cor || "#2563eb";
+
+        // ── Totals ──────────────────────────────────────────────
+        const rL = ps.reduce((a,b)=>a+(b.likes_real||0),0);
+        const rC = ps.reduce((a,b)=>a+(b.comentarios_real||0),0);
+        const rP = ps.reduce((a,b)=>a+(b.partilhas_real||0),0);
+        const oL = camp.likes_objetivo||0, oC = camp.comentarios_objetivo||0, oP = camp.partilhas_objetivo||0;
+        const oT = oL+oC+oP, rT = rL+rC+rP;
+
+        // ── Duration ────────────────────────────────────────────
+        let dur = "—";
+        if (camp.data_inicio && camp.data_fim)
+            dur = Math.round((new Date(camp.data_fim)-new Date(camp.data_inicio))/(1000*60*60*24));
+
+        // ── Posting frequency (avg days between posts) ─────────
+        const datedPosts = ps.filter(p=>p.data_publicacao).sort((a,b)=>a.data_publicacao.localeCompare(b.data_publicacao));
+        let freq = "—";
+        if (datedPosts.length >= 2) {
+            const gaps = [];
+            for (let i=1; i<datedPosts.length; i++) {
+                const diff = (new Date(datedPosts[i].data_publicacao)-new Date(datedPosts[i-1].data_publicacao))/(1000*60*60*24);
+                if (diff >= 0) gaps.push(diff);
+            }
+            freq = gaps.length ? (gaps.reduce((a,b)=>a+b,0)/gaps.length).toFixed(1) : "—";
+        }
+
+        // ── Avg engagement per post (real metrics) ─────────────
+        const avgEng = ps.length > 0 ? Math.round(rT / ps.length) : "—";
+
+        // ── KPI strip ───────────────────────────────────────────
+        document.getElementById("res-posts").textContent      = ps.length;
+        document.getElementById("res-duracao").textContent    = dur;
+        document.getElementById("res-seguidores").textContent = camp.seguidores_objetivo || "—";
+        document.getElementById("res-total-eng").textContent  = rT.toLocaleString("pt-PT");
+        document.getElementById("res-eng-rate").textContent   = typeof avgEng === "number" ? avgEng.toLocaleString("pt-PT") : "—";
+        document.getElementById("res-freq").textContent       = freq;
+
+        // ── Verdict card ────────────────────────────────────────
+        const vc = document.getElementById("verdict-card");
+        if (oT > 0) {
+            const pct = Math.round((rT/oT)*100);
+            vc.classList.remove("hidden","verdict-excellent","verdict-ontarget","verdict-under");
+            let emoji, label, sub, pctColor;
+            if (pct >= 120) {
+                vc.classList.add("verdict-excellent");
+                emoji="🟢"; label="Excelente performance"; sub="Campanha superou os objetivos definidos."; pctColor="#16a34a";
+            } else if (pct >= 80) {
+                vc.classList.add("verdict-ontarget");
+                emoji="🟡"; label="Objetivos atingidos"; sub="Campanha dentro do intervalo esperado."; pctColor="#ca8a04";
+            } else {
+                vc.classList.add("verdict-under");
+                emoji="🔴"; label="Abaixo do esperado"; sub="Campanha ficou aquém dos objetivos."; pctColor="#dc2626";
+            }
+            document.getElementById("verdict-emoji").textContent = emoji;
+            document.getElementById("verdict-label").textContent = label;
+            document.getElementById("verdict-sub").textContent   = sub;
+            document.getElementById("verdict-pct").textContent   = pct+"%";
+            document.getElementById("verdict-pct").style.color   = pctColor;
+        } else {
+            vc.classList.add("hidden");
+        }
+
+        // ── Budget ──────────────────────────────────────────────
+        const bc = document.getElementById("budget-card");
+        if (camp.budget) {
+            bc.classList.remove("hidden");
+            document.getElementById("b-budget").textContent = "€"+Number(camp.budget).toLocaleString("pt-PT",{minimumFractionDigits:2,maximumFractionDigits:2});
+            const cpp = camp.cost_per_post || (ps.length > 0 ? camp.budget/ps.length : null);
+            document.getElementById("b-cpp").textContent = cpp ? "€"+Number(cpp).toFixed(2) : "—";
+            document.getElementById("b-eff").textContent = (rT > 0 && camp.budget > 0) ? (rT/camp.budget).toFixed(2) : "—";
+        } else { bc.classList.add("hidden"); }
+
+        // ── Radial rings ────────────────────────────────────────
+        const CIRCUMFERENCE = 314;
+        const setRadial = (key, real, obj, color) => {
+            const pct = obj > 0 ? Math.min(Math.round((real/obj)*100), 100) : 0;
+            const ring = document.getElementById("ring-"+key);
+            ring.style.stroke = color;
+            setTimeout(()=>{ ring.style.strokeDashoffset = CIRCUMFERENCE - (CIRCUMFERENCE*pct/100); }, 80);
+            document.getElementById("pct-"+key).textContent = obj > 0 ? pct+"%" : "—";
+            document.getElementById("real-"+key).textContent = real.toLocaleString("pt-PT");
+            document.getElementById("obj-"+key).textContent  = obj.toLocaleString("pt-PT");
+            document.getElementById("bar-"+key).style.width  = pct+"%";
+        };
+        setRadial("likes",       rL, oL, cor);
+        setRadial("comentarios", rC, oC, cor);
+        setRadial("partilhas",   rP, oP, cor);
+
+        // ── Insights ────────────────────────────────────────────
+        renderInsights(camp, ps, rT, oT);
+
+        // ── Timeline with post markers ──────────────────────────
+        renderResumoTimeline(camp, ps);
+
+        // ── Post ranking ────────────────────────────────────────
+        renderPostRanking(ps, cor);
+
+        // ── Chart: engagement over time ─────────────────────────
+        const dated = ps.filter(p=>p.data_publicacao).sort((a,b)=>a.data_publicacao.localeCompare(b.data_publicacao));
+        const engTimeCtx = document.getElementById("engTimeChart");
+        if (window._engTimeChart) window._engTimeChart.destroy();
+        if (dated.length >= 2) {
+            document.getElementById("eng-time-empty").classList.add("hidden");
+            engTimeCtx.classList.remove("hidden");
+            window._engTimeChart = new Chart(engTimeCtx, {
+                type: "line",
+                data: {
+                    labels: dated.map(p=>new Date(p.data_publicacao).toLocaleDateString("pt-PT",{day:"2-digit",month:"2-digit"})),
+                    datasets: [{
+                        label: "Engagement total",
+                        data: dated.map(p=>(p.likes_real||0)+(p.comentarios_real||0)+(p.partilhas_real||0)),
+                        borderColor: cor,
+                        backgroundColor: cor+"22",
+                        borderWidth: 2,
+                        pointBackgroundColor: cor,
+                        pointRadius: 4,
+                        fill: true,
+                        tension: 0.3
+                    }]
+                },
+                options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{ x:scaleOpts, y:{...scaleOpts, beginAtZero:true} } }
+            });
+        } else {
+            engTimeCtx.classList.add("hidden");
+            document.getElementById("eng-time-empty").classList.remove("hidden");
+        }
+
+        // ── Chart: engagement by content type ───────────────────
+        const engTypeCtx = document.getElementById("engTypeChart");
+        if (window._engTypeChart) window._engTypeChart.destroy();
+        const byType = {};
+        ps.forEach(p => {
+            const t = p.tipo || "Post";
+            if (!byType[t]) byType[t] = 0;
+            byType[t] += (p.likes_real||0)+(p.comentarios_real||0)+(p.partilhas_real||0);
+        });
+        const typeKeys = Object.keys(byType);
+        if (typeKeys.length >= 2) {
+            document.getElementById("eng-type-empty").classList.add("hidden");
+            engTypeCtx.classList.remove("hidden");
+            const palette = [cor, cor+"bb", cor+"88", cor+"55", cor+"33"];
+            window._engTypeChart = new Chart(engTypeCtx, {
+                type: "doughnut",
+                data: {
+                    labels: typeKeys,
+                    datasets: [{ data: typeKeys.map(k=>byType[k]), backgroundColor: palette.slice(0,typeKeys.length), borderWidth:2, borderColor:"#fff" }]
+                },
+                options: { responsive:true, maintainAspectRatio:false, plugins:{ legend:{ position:"bottom", labels:{ color:"#94a3b8", font:{size:11} } } } }
+            });
+        } else {
+            engTypeCtx.classList.add("hidden");
+            document.getElementById("eng-type-empty").classList.remove("hidden");
+        }
+
+        // ── Chart: posts side by side ────────────────────────────
+        if (!ps.length) {
+            document.getElementById("chart-empty").classList.remove("hidden");
+            document.getElementById("postChart").classList.add("hidden");
+            return;
+        }
+        document.getElementById("chart-empty").classList.add("hidden");
+        document.getElementById("postChart").classList.remove("hidden");
+        if (postChart) postChart.destroy();
+        const uniqueNames = [...new Set(ps.map(p=>p.nome))];
+        postChart = new Chart(document.getElementById("postChart"), {
+            type: "bar",
+            data: {
+                labels: uniqueNames,
+                datasets: [
+                    {label:"Likes",       data:uniqueNames.map(n=>ps.filter(p=>p.nome===n).reduce((a,p)=>a+(p.likes_real||0),0)),       backgroundColor:cor,      borderRadius:4},
+                    {label:"Comentários", data:uniqueNames.map(n=>ps.filter(p=>p.nome===n).reduce((a,p)=>a+(p.comentarios_real||0),0)), backgroundColor:cor+"99", borderRadius:4},
+                    {label:"Partilhas",   data:uniqueNames.map(n=>ps.filter(p=>p.nome===n).reduce((a,p)=>a+(p.partilhas_real||0),0)),   backgroundColor:cor+"44", borderRadius:4}
+                ]
+            },
+            options:{ responsive:true, maintainAspectRatio:false, plugins:{legend:{labels:{color:"#94a3b8"}}}, scales:{x:scaleOpts,y:{...scaleOpts,beginAtZero:true}} }
+        });
+    }
+
+    // ── INSIGHTS ───────────────────────────────────────────────
+    function renderInsights(camp, ps, rT, oT) {
+        const wrap = document.getElementById("insights-list");
+        const insights = [];
+
+        // 1. Veredicto geral
+        if (oT > 0) {
+            const pct = Math.round((rT/oT)*100);
+            if (pct >= 120) insights.push({icon:"🚀", text:`Campanha superou os objetivos em <strong>${pct-100}%</strong> — excelente resultado.`});
+            else if (pct >= 80) insights.push({icon:"✅", text:`Campanha atingiu <strong>${pct}%</strong> dos objetivos, dentro do intervalo esperado.`});
+            else insights.push({icon:"⚠️", text:`Campanha atingiu apenas <strong>${pct}%</strong> dos objetivos. Considera rever o tipo de conteúdo ou frequência.`});
+        }
+
+        // 2. Post com melhor engagement
+        const scored = ps.map(p=>({...p, _eng:(p.likes_real||0)+(p.comentarios_real||0)+(p.partilhas_real||0)})).filter(p=>p._eng>0);
+        if (scored.length) {
+            const best = scored.reduce((a,b)=>b._eng>a._eng?b:a);
+            insights.push({icon:"🏆", text:`Melhor post: <strong>"${best.nome}"</strong> com ${best._eng.toLocaleString("pt-PT")} interações${best.data_publicacao?" em "+new Date(best.data_publicacao).toLocaleDateString("pt-PT"):""}.`});
+        }
+
+        // 3. Post com pior performance (publicado, com objetivo)
+        const todayStr = new Date().toISOString().split('T')[0];
+        const published = ps.filter(p=>p.data_publicacao && p.data_publicacao<=todayStr);
+        const withObj   = published.filter(p=>(p.likes_objetivo||0)+(p.comentarios_objetivo||0)+(p.partilhas_objetivo||0)>0);
+        if (withObj.length) {
+            const worst = withObj.reduce((a,b)=>{
+                const pA=(a.likes_real||0)+(a.comentarios_real||0)+(a.partilhas_real||0);
+                const pB=(b.likes_real||0)+(b.comentarios_real||0)+(b.partilhas_real||0);
+                return pB<pA?b:a;
+            });
+            const wEng = (worst.likes_real||0)+(worst.comentarios_real||0)+(worst.partilhas_real||0);
+            const wObj = (worst.likes_objetivo||0)+(worst.comentarios_objetivo||0)+(worst.partilhas_objetivo||0);
+            const wPct = Math.round((wEng/wObj)*100);
+            if (wPct < 80) insights.push({icon:"📉", text:`Post com menor performance: <strong>"${worst.nome}"</strong> atingiu ${wPct}% do objetivo — considera perceber o que correu mal.`});
+        }
+
+        // 4. Melhor dia da semana
+        const byDow = {0:0,1:0,2:0,3:0,4:0,5:0,6:0};
+        const byDowCount = {0:0,1:0,2:0,3:0,4:0,5:0,6:0};
+        published.forEach(p=>{
+            if (!p.data_publicacao) return;
+            const dow = new Date(p.data_publicacao).getDay();
+            byDow[dow] += (p.likes_real||0)+(p.comentarios_real||0)+(p.partilhas_real||0);
+            byDowCount[dow]++;
+        });
+        const dowNames = ["Dom","Seg","Ter","Qua","Qui","Sex","Sáb"];
+        let bestDow = null, bestDowAvg = 0;
+        for (let d=0; d<7; d++) {
+            if (byDowCount[d]>0) {
+                const avg = byDow[d]/byDowCount[d];
+                if (avg > bestDowAvg) { bestDowAvg=avg; bestDow=d; }
+            }
+        }
+        if (bestDow !== null && published.length >= 3) {
+            insights.push({icon:"📅", text:`Melhor dia para publicar: <strong>${dowNames[bestDow]}</strong> — média de ${Math.round(bestDowAvg).toLocaleString("pt-PT")} interações por post.`});
+        }
+
+        if (!insights.length) { wrap.innerHTML='<p class="text-slate-400 text-sm">Dados insuficientes para gerar insights.</p>'; return; }
+        wrap.innerHTML = insights.map(i=>`<div class="insight-item"><span class="insight-icon">${i.icon}</span><span>${i.text}</span></div>`).join("");
+    }
+
+    function renderResumoTimeline(camp, posts) {
+        const cor=camp.cor||"#2563eb", today=new Date(); today.setHours(0,0,0,0);
+        const campStart = camp.data_inicio ? new Date(camp.data_inicio) : new Date(today.getTime() - 30*86400000);
+        const campEnd   = camp.data_fim    ? new Date(camp.data_fim)    : new Date(today.getTime() + 10*86400000);
+        const totalMs = campEnd - campStart;
+        const totalDays = Math.max(Math.round(totalMs / 86400000), 1);
+        const COLS = Math.min(Math.max(totalDays, 7), 60);
+
+        const days = Array.from({length:COLS},(_,i)=>{
+            const d=new Date(campStart); d.setDate(d.getDate()+i); return d;
+        });
+
+        const postsByDate = {};
+        posts.forEach(p => {
+            if (!p.data_publicacao) return;
+            const k = p.data_publicacao.split('T')[0];
+            if (!postsByDate[k]) postsByDate[k] = [];
+            postsByDate[k].push(p);
+        });
+
+        const grid = document.createElement("div");
+        grid.className = "tl-grid";
+        grid.style.gridTemplateColumns = `repeat(${COLS},minmax(0,1fr))`;
+
+        days.forEach(d => {
+            const isT = d.getTime()===today.getTime();
+            const cell = document.createElement("div");
+            if (isT) { cell.style.background="rgba(37,99,235,0.04)"; cell.style.borderLeft="1px solid rgba(37,99,235,0.2)"; cell.style.borderRight="1px solid rgba(37,99,235,0.2)"; }
+            const lbl = document.createElement("div");
+            lbl.className = "tl-day-label"+(isT?" today":"");
+            const dd=d.getDate().toString().padStart(2,"0"), mm=(d.getMonth()+1).toString().padStart(2,"0");
+            lbl.textContent = isT?"Hoje":`${dd}/${mm}`;
+            cell.appendChild(lbl); grid.appendChild(cell);
+        });
+
+        days.forEach((d,idx) => {
+            const cell = document.createElement("div");
+            const inR = d>=campStart && d<=campEnd;
+            if (inR) {
+                const iF=idx===0||(d.getTime()===campStart.getTime()), iL=idx===days.length-1||(d.getTime()===campEnd.getTime());
+                const bar = document.createElement("div"); bar.className="tl-bar"; bar.style.background=cor;
+                bar.style.opacity=camp.status==="Inativa"?"0.4":"1";
+                bar.style.borderRadius=iF&&iL?"4px":iF?"4px 0 0 4px":iL?"0 4px 4px 0":"0";
+                if(iF) bar.textContent=camp.nome; cell.appendChild(bar);
+            } else { const g=document.createElement("div"); g.className="tl-gap"; cell.appendChild(g); }
+            grid.appendChild(cell);
+        });
+
+        days.forEach(d => {
+            const k = d.toISOString().split('T')[0];
+            const cell = document.createElement("div");
+            cell.style.height="28px"; cell.style.display="flex"; cell.style.alignItems="center"; cell.style.justifyContent="center"; cell.style.gap="2px";
+            const dayPosts = postsByDate[k] || [];
+            if (dayPosts.length > 0) {
+                const shown = dayPosts.slice(0,3);
+                shown.forEach(p => {
+                    const dot = document.createElement("div");
+                    dot.style.cssText=`width:8px;height:8px;border-radius:50%;background:${cor};cursor:pointer;flex-shrink:0;border:1.5px solid white;box-shadow:0 1px 3px rgba(0,0,0,0.2);`;
+                    dot.title = p.nome;
+                    dot.onclick = () => abrirPostOverlay(p.nome);
+                    cell.appendChild(dot);
+                });
+                if (dayPosts.length > 3) {
+                    const more = document.createElement("span");
+                    more.style.cssText="font-size:8px;color:#94a3b8;font-weight:700;";
+                    more.textContent=`+${dayPosts.length-3}`;
+                    cell.appendChild(more);
+                }
+            }
+            grid.appendChild(cell);
+        });
+
+        const cont = document.getElementById("resumo-timeline-container");
+        cont.innerHTML=""; cont.appendChild(grid);
+    }
+
+    // ── POST RANKING (improved) ────────────────────────────────
+    function renderPostRanking(posts, cor) {
+        const wrap = document.getElementById("post-ranking");
+        const byName = {};
+        posts.forEach(p => {
+            const k = p.nome;
+            const eng = (p.likes_real||0)+(p.comentarios_real||0)+(p.partilhas_real||0);
+            const prev = byName[k] ? (byName[k].likes_real||0)+(byName[k].comentarios_real||0)+(byName[k].partilhas_real||0) : -1;
+            if (eng > prev) byName[k] = p;
+        });
+        const all = Object.values(byName)
+            .map(p=>({...p, _eng:(p.likes_real||0)+(p.comentarios_real||0)+(p.partilhas_real||0)}))
+            .filter(p=>p._eng>0)
+            .sort((a,b)=>b._eng-a._eng);
+
+        if (!all.length) { wrap.innerHTML='<p class="text-slate-400 text-sm text-center py-4">Sem posts com engagement registado.</p>'; return; }
+
+        const campAvg = all.reduce((a,b)=>a+b._eng,0) / all.length;
+        const maxEng  = all[0]._eng;
+        const medals  = ["🥇","🥈","🥉"];
+
+        wrap.innerHTML = all.map((p,i) => {
+            const pct  = Math.round((p._eng/maxEng)*100);
+            const diff = campAvg > 0 ? ((p._eng - campAvg)/campAvg*100) : 0;
+            const diffTxt = diff >= 0
+                ? `<span class="text-emerald-600 font-semibold">+${Math.round(diff)}% acima da média</span>`
+                : `<span class="text-red-500 font-semibold">${Math.round(diff)}% abaixo da média</span>`;
+            return `<div class="flex items-center gap-3 p-3 rounded-xl border border-slate-100 hover:border-slate-200 hover:bg-slate-50 cursor-pointer transition" onclick="abrirPostOverlay('${p.nome.replace(/'/g,"\\'")}')">
+                <span class="text-lg w-7 text-center flex-shrink-0">${medals[i]||"#"+(i+1)}</span>
+                <div class="flex-1 min-w-0">
+                    <div class="flex justify-between items-baseline mb-1.5 flex-wrap gap-1">
+                        <span class="text-sm font-semibold text-slate-800 truncate">${p.nome}</span>
+                        <span class="text-sm font-bold flex-shrink-0" style="color:${cor}">${p._eng.toLocaleString("pt-PT")} eng.</span>
+                    </div>
+                    <div style="background:#f1f5f9;border-radius:999px;height:4px;overflow:hidden;">
+                        <div style="width:${pct}%;background:${cor};height:100%;border-radius:999px;transition:width 0.6s;"></div>
+                    </div>
+                    <div class="flex items-center justify-between mt-1.5 flex-wrap gap-1">
+                        <div class="flex gap-3 text-xs text-slate-400">
+                            <span>❤️ ${p.likes_real||0}</span><span>💬 ${p.comentarios_real||0}</span><span>🔁 ${p.partilhas_real||0}</span>
+                            ${p.data_publicacao?`<span class="text-slate-300">·</span><span>${new Date(p.data_publicacao).toLocaleDateString("pt-PT")}</span>`:""}
+                        </div>
+                        <span class="text-xs">${diffTxt}</span>
+                    </div>
+                </div>
+            </div>`;
+        }).join("");
+    }
+
+    async function carregarPostsAll(campId) {
+        const {data}=await supabaseClient.from("posts").select("*").eq("campanha_id",campId).order("data_publicacao",{ascending:true});
+        currentPosts=data||[]; renderPosts();
+    }
+
+    function renderPosts() {
+        const groups = {};
+        currentPosts.forEach(p => {
+            const k = p.nome.toLowerCase();
+            if (!groups[k]) groups[k] = { nome: p.nome, posts: [] };
+            groups[k].posts.push(p);
+        });
+        let rows = Object.values(groups);
+        if (postSearch) rows = rows.filter(g => g.nome.toLowerCase().includes(postSearch.toLowerCase()));
+        const rep = g => g.posts.reduce((best,p) => calcScore(p) > calcScore(best) ? p : best, g.posts[0]);
+        const sortFn = {
+            data:        (a,b) => (rep(a).data_publicacao||"").localeCompare(rep(b).data_publicacao||""),
+            score:       (a,b) => calcScore(rep(b)) - calcScore(rep(a)),
+            likes:       (a,b) => (rep(b).likes_real||0) - (rep(a).likes_real||0),
+            comentarios: (a,b) => (rep(b).comentarios_real||0) - (rep(a).comentarios_real||0),
+            partilhas:   (a,b) => (rep(b).partilhas_real||0) - (rep(a).partilhas_real||0),
+        };
+        rows.sort(sortFn[sortFilter] || sortFn.data);
+        const wrap = document.getElementById("posts-list");
+        if (!rows.length) {
+            wrap.innerHTML = currentPosts.length === 0
+                ? `<div class="text-center py-12 text-slate-400"><p class="text-3xl mb-2">📝</p><p class="text-sm">${isAdmin?'Sem posts. Clica em "+ Novo Post" para adicionar.':'Sem posts nesta campanha.'}</p></div>`
+                : `<div class="text-center py-12 text-slate-400"><p class="text-3xl mb-2">🔍</p><p class="text-sm">Nenhum post corresponde ao filtro.</p></div>`;
+            return;
+        }
+        const tipoCls={Post:"bg-slate-100 text-slate-600",Reel:"bg-purple-50 text-purple-600 border border-purple-200",Story:"bg-blue-50 text-blue-600 border border-blue-200",Carrossel:"bg-amber-50 text-amber-600 border border-amber-200",Live:"bg-red-50 text-red-600 border border-red-200"};
+        wrap.innerHTML = rows.map(g => {
+            const r = rep(g);
+            const redes = g.posts.map(p => p.rede||"Instagram");
+            const hasIG = redes.includes("Instagram"), hasFB = redes.includes("Facebook");
+            const totalScore = g.posts.reduce((a,p)=>a+calcScore(p),0);
+            const totalReal  = g.posts.reduce((a,p)=>a+(p.likes_real||0)+(p.comentarios_real||0)+(p.partilhas_real||0),0);
+            const totalObj   = g.posts.reduce((a,p)=>a+(p.likes_objetivo||0)+(p.comentarios_objetivo||0)+(p.partilhas_objetivo||0),0);
+            const todayStr   = new Date().toISOString().split('T')[0];
+            const isPublished = r.data_publicacao && r.data_publicacao <= todayStr;
+            const underperform = isPublished && totalObj > 0 && totalReal/totalObj < 0.3;
+            const dataStr = r.data_publicacao ? new Date(r.data_publicacao).toLocaleDateString("pt-PT") : "—";
+            const diasStr = r.data_publicacao ? (()=>{const d=Math.round((new Date()-new Date(r.data_publicacao))/(1000*60*60*24));return d===0?"Hoje":d>0?`Há ${d}d`:`Em ${Math.abs(d)}d`;})() : "";
+            return `<div class="card p-4 shadow-sm hover:shadow-md transition-shadow cursor-pointer ${underperform?'border-red-200':''}" onclick="abrirPostOverlay('${g.nome.replace(/'/g,"\\'")}')">
+                ${underperform?`<div class="flex items-center gap-2 text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-1.5 mb-3">⚠️ Abaixo de 30% do objetivo (${Math.round((totalReal/totalObj)*100)}%)</div>`:''}
+                <div class="flex items-center justify-between gap-3">
+                    <div class="flex-1 min-w-0">
+                        <div class="flex items-center gap-2 flex-wrap mb-1">
+                            <span class="text-sm font-bold text-slate-900">${g.nome}</span>
+                            <span class="text-xs px-1.5 py-0.5 rounded-md font-medium ${tipoCls[r.tipo]||tipoCls.Post}">${r.tipo||"Post"}</span>
+                            ${hasIG?'<span class="text-xs px-1.5 py-0.5 rounded-md font-medium bg-fuchsia-50 text-fuchsia-600 border border-fuchsia-200">📸 IG</span>':''}
+                            ${hasFB?'<span class="text-xs px-1.5 py-0.5 rounded-md font-medium bg-blue-50 text-blue-600 border border-blue-200">📘 FB</span>':''}
+                        </div>
+                        <p class="text-xs text-slate-400">${dataStr}${diasStr?" · "+diasStr:""}</p>
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <div class="text-right text-xs text-slate-400 hidden sm:block">
+                            <span>❤️ ${g.posts.reduce((a,p)=>a+(p.likes_real||0),0)}</span>
+                            <span class="ml-2">💬 ${g.posts.reduce((a,p)=>a+(p.comentarios_real||0),0)}</span>
+                            <span class="ml-2">🔁 ${g.posts.reduce((a,p)=>a+(p.partilhas_real||0),0)}</span>
+                        </div>
+                        <div class="flex-shrink-0 w-11 h-11 rounded-full border-2 flex items-center justify-center text-xs font-bold"
+                             style="border-color:${totalScore>0?"#2563eb":"#e2e8f0"};color:${totalScore>0?"#2563eb":"#cbd5e1"}">${totalScore.toFixed(0)}</div>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+                    </div>
+                </div>
+            </div>`;
+        }).join("");
+    }
+
+    // ── POST OVERLAY ───────────────────────────────────────────
+    function abrirPostOverlay(nome) {
+        const postsDaGrupo = currentPosts.filter(p => p.nome === nome);
+        if (!postsDaGrupo.length) return;
+        const ref = postsDaGrupo[0];
+        const tipoCls={Post:"bg-slate-100 text-slate-600",Reel:"bg-purple-50 text-purple-600",Story:"bg-blue-50 text-blue-600",Carrossel:"bg-amber-50 text-amber-600",Live:"bg-red-50 text-red-600"};
+        const tc = tipoCls[ref.tipo||"Post"] || tipoCls.Post;
+        document.getElementById("ov-tipo-badge").className = `inline-flex items-center gap-1.5 text-xs px-2 py-0.5 rounded-md font-medium ${tc}`;
+        document.getElementById("ov-tipo-badge").textContent = ref.tipo || "Post";
+        document.getElementById("ov-nome").textContent = nome;
+        document.getElementById("ov-descricao").textContent = ref.descricao || "";
+        const dataStr = ref.data_publicacao ? new Date(ref.data_publicacao).toLocaleDateString("pt-PT", {day:"numeric",month:"long",year:"numeric"}) : "";
+        document.getElementById("ov-data").textContent = dataStr;
+        const adminWrap = document.getElementById("ov-admin-btns");
+        if (isAdmin) { adminWrap.classList.remove("hidden"); } else { adminWrap.classList.add("hidden"); }
+        if (ref.drive_link) {
+            document.getElementById("ov-drive-wrap").classList.remove("hidden");
+            document.getElementById("ov-drive-link").href = ref.drive_link;
+        } else { document.getElementById("ov-drive-wrap").classList.add("hidden"); }
+        const renderNetCard = (rede, emoji, accentColor) => {
+            const p = postsDaGrupo.find(x => (x.rede||"Instagram") === rede);
+            const el = document.getElementById(rede==="Instagram" ? "ov-card-ig" : "ov-card-fb");
+            if (!p) {
+                el.innerHTML = `<div class="flex flex-col items-center justify-center h-full py-10 text-slate-300"><span class="text-4xl mb-2">${emoji}</span><p class="text-sm font-medium text-slate-400">${rede}</p><p class="text-xs text-slate-300 mt-1">Sem dados</p></div>`;
+                return;
+            }
+            const score = calcScore(p);
+            const metrics = [
+                {label:"Likes", icon:"❤️", real:p.likes_real||0, obj:p.likes_objetivo||0},
+                {label:"Comentários", icon:"💬", real:p.comentarios_real||0, obj:p.comentarios_objetivo||0},
+                {label:"Partilhas", icon:"🔁", real:p.partilhas_real||0, obj:p.partilhas_objetivo||0},
+            ];
+            const todayStr = new Date().toISOString().split('T')[0];
+            const isPublished = p.data_publicacao && p.data_publicacao <= todayStr;
+            const oT = metrics.reduce((a,m)=>a+m.obj,0), rT = metrics.reduce((a,m)=>a+m.real,0);
+            const underperform = isPublished && oT > 0 && rT/oT < 0.3;
+            el.innerHTML = `
+                <div class="flex items-center justify-between mb-5">
+                    <div class="flex items-center gap-2"><span class="text-2xl">${emoji}</span><span class="text-sm font-bold text-slate-800">${rede}</span></div>
+                    <div class="w-11 h-11 rounded-full border-2 flex items-center justify-center text-xs font-bold" style="border-color:${accentColor};color:${accentColor}">${score.toFixed(0)}</div>
+                </div>
+                ${underperform?`<div class="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-1.5 mb-4">⚠️ ${Math.round((rT/oT)*100)}% do objetivo</div>`:''}
+                <div class="space-y-4">
+                    ${metrics.map(m => {
+                        const pct = m.obj > 0 ? Math.min(Math.round((m.real/m.obj)*100),100) : 0;
+                        return `<div>
+                            <div class="flex justify-between text-xs mb-1.5"><span class="text-slate-500">${m.icon} ${m.label}</span><span class="font-bold text-slate-800">${m.real.toLocaleString("pt-PT")}<span class="font-normal text-slate-400"> / ${m.obj.toLocaleString("pt-PT")}</span>${m.obj>0?` <span style="color:${accentColor}">${pct}%</span>`:""}</span></div>
+                            <div style="background:#f1f5f9;border-radius:999px;height:5px;overflow:hidden;"><div style="width:${pct}%;background:${accentColor};height:100%;border-radius:999px;transition:width 0.5s;"></div></div>
+                        </div>`;
+                    }).join("")}
+                </div>
+                ${isAdmin?`<div class="mt-5 pt-4 border-t border-slate-100 flex gap-2">
+                    <button onclick="fecharPostOverlay();abrirModalPost(${p.id})" class="text-xs px-3 py-1.5 bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-600 rounded-lg transition font-medium flex-1 text-center">Editar</button>
+                    ${postsDaGrupo.length===1?`<button onclick="fecharPostOverlay();duplicarPost(${p.id},'${rede==="Instagram"?"Facebook":"Instagram"}')" class="text-xs px-3 py-1.5 bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-600 rounded-lg transition font-medium flex-1 text-center">+ ${rede==="Instagram"?"FB":"IG"}</button>`:""}
+                    <button onclick="fecharPostOverlay();setTimeout(()=>eliminarPost(${p.id}),100)" class="text-xs px-3 py-1.5 bg-slate-50 hover:bg-red-50 border border-slate-200 hover:border-red-300 text-slate-400 hover:text-red-500 rounded-lg transition font-medium">🗑</button>
+                </div>`:""}`;
+        };
+        renderNetCard("Instagram", "📸", "#db2777");
+        renderNetCard("Facebook",  "📘", "#2563eb");
+        document.getElementById("post-overlay").classList.remove("hidden");
+        document.body.style.overflow = "hidden";
+    }
+
+    function fecharPostOverlay(event) {
+        if (event && event.target !== document.getElementById("post-overlay")) return;
+        document.getElementById("post-overlay").classList.add("hidden");
+        document.body.style.overflow = "";
+    }
+
+    document.addEventListener("keydown", e => {
+        if (e.key === "Escape") {
+            fecharPostOverlay();
+            fecharModalCampanha();
+            fecharModalPost();
+            fecharModalDelete();
+        }
+    });
+    function setSort(s) { sortFilter=s; ["data","score","likes","comentarios","partilhas"].forEach(k=>{document.getElementById("sf-"+k).className="pill"+(k===s?" active":"");}); renderPosts(); }
+    function switchDetailTab(tab) {
+        const r=tab==="resumo";
+        document.getElementById("tab-resumo").classList.toggle("hidden",!r);
+        document.getElementById("tab-posts").classList.toggle("hidden",r);
+        document.getElementById("dtab-resumo").className="tab-btn "+(r?"active":"inactive");
+        document.getElementById("dtab-posts").className="tab-btn "+(!r?"active":"inactive");
+    }
+
+    async function duplicarPost(postId, novaRede) {
+        const post=currentPosts.find(p=>p.id===postId); if(!post) return;
+        const {error}=await supabaseClient.from("posts").insert([{campanha_id:post.campanha_id,nome:post.nome,tipo:post.tipo,descricao:post.descricao,drive_link:post.drive_link,data_publicacao:post.data_publicacao,rede:novaRede,likes_objetivo:post.likes_objetivo,comentarios_objetivo:post.comentarios_objetivo,partilhas_objetivo:post.partilhas_objetivo,likes_real:0,comentarios_real:0,partilhas_real:0}]);
+        if(error){showToast("Erro ao duplicar: "+error.message, true);return;}
+        showToast("Post duplicado para "+novaRede+"!");
+        await carregarPostsAll(currentCampId);
+        const {data:camp}=await supabaseClient.from("campanhas").select("*").eq("id",currentCampId).single();
+        if(camp) await carregarResumo(camp);
+    }
+    async function eliminarPost(postId) {
+        confirmarAcao("Eliminar este post?", "Esta ação não pode ser desfeita.", async () => {
+            const {error}=await supabaseClient.from("posts").delete().eq("id",postId);
+            if(error){showToast("Erro ao eliminar: "+error.message, true);return;}
+            showToast("Post eliminado.");
+            await carregarPostsAll(currentCampId);
+            const {data:camp}=await supabaseClient.from("campanhas").select("*").eq("id",currentCampId).single();
+            if(camp) await carregarResumo(camp);
+        });
+    }
+    function confirmarEliminarCampanha() { document.getElementById("modal-delete").classList.remove("hidden"); }
+    function fecharModalDelete() { document.getElementById("modal-delete").classList.add("hidden"); }
+    async function eliminarCampanha() {
+        const {error}=await supabaseClient.from("campanhas").delete().eq("id",currentCampId);
+        if(error){showToast("Erro: "+error.message, true);return;}
+        fecharModalDelete(); showList();
+    }
+
+    async function abrirModalCampanha(id=null) {
+        editingCampId=id; document.getElementById("modal-camp-title").textContent=id?"Editar Campanha":"Nova Campanha"; document.getElementById("modal-camp-msg").classList.add("hidden");
+        if(id) {
+            const {data}=await supabaseClient.from("campanhas").select("*").eq("id",id).single();
+            if(data){document.getElementById("mc_nome").value=data.nome||"";document.getElementById("mc_descricao").value=data.descricao||"";document.getElementById("mc_plataforma").value=data.plataforma||"Instagram";document.getElementById("mc_status").value=data.status||"Ativa";document.getElementById("mc_data_inicio").value=data.data_inicio||"";document.getElementById("mc_data_fim").value=data.data_fim||"";document.getElementById("mc_likes_obj").value=data.likes_objetivo||"";document.getElementById("mc_comentarios_obj").value=data.comentarios_objetivo||"";document.getElementById("mc_partilhas_obj").value=data.partilhas_objetivo||"";document.getElementById("mc_seguidores_obj").value=data.seguidores_objetivo||"";document.getElementById("mc_budget").value=data.budget||"";document.getElementById("mc_cost_per_post").value=data.cost_per_post||"";selectColor(data.cor||"#2563eb");}
+        } else {
+            ["mc_nome","mc_descricao","mc_data_inicio","mc_data_fim","mc_likes_obj","mc_comentarios_obj","mc_partilhas_obj","mc_seguidores_obj","mc_budget","mc_cost_per_post"].forEach(id=>document.getElementById(id).value="");
+            document.getElementById("mc_plataforma").value="Instagram"; document.getElementById("mc_status").value="Ativa"; selectColor("#2563eb");
+        }
+        document.getElementById("modal-campanha").classList.remove("hidden");
+    }
+    function fecharModalCampanha() { document.getElementById("modal-campanha").classList.add("hidden"); }
+    async function guardarCampanha() {
+        const nome=document.getElementById("mc_nome").value.trim(); if(!nome){showMsg("modal-camp-msg","O nome é obrigatório.",true);return;}
+        const payload={nome,descricao:document.getElementById("mc_descricao").value.trim()||null,plataforma:document.getElementById("mc_plataforma").value,status:document.getElementById("mc_status").value,data_inicio:document.getElementById("mc_data_inicio").value||null,data_fim:document.getElementById("mc_data_fim").value||null,cor:document.getElementById("mc_cor").value,likes_objetivo:Number(document.getElementById("mc_likes_obj").value)||0,comentarios_objetivo:Number(document.getElementById("mc_comentarios_obj").value)||0,partilhas_objetivo:Number(document.getElementById("mc_partilhas_obj").value)||0,seguidores_objetivo:Number(document.getElementById("mc_seguidores_obj").value)||0,budget:document.getElementById("mc_budget").value?Number(document.getElementById("mc_budget").value):null,cost_per_post:document.getElementById("mc_cost_per_post").value?Number(document.getElementById("mc_cost_per_post").value):null};
+        const {error}=editingCampId?await supabaseClient.from("campanhas").update(payload).eq("id",editingCampId):await supabaseClient.from("campanhas").insert([payload]);
+        if(error){showMsg("modal-camp-msg","Erro: "+error.message,true);return;}
+        fecharModalCampanha(); if(editingCampId) showDetail(editingCampId); else showList();
+    }
+
+    async function abrirModalPost(id=null) {
+        editingPostId=id; document.getElementById("modal-post-title").textContent=id?"Editar Post":"Novo Post"; document.getElementById("modal-post-msg").classList.add("hidden");
+        if(id){const {data}=await supabaseClient.from("posts").select("*").eq("id",id).single();if(data){document.getElementById("mp_nome").value=data.nome||"";document.getElementById("mp_tipo").value=data.tipo||"Post";document.getElementById("mp_rede").value=data.rede||"Instagram";document.getElementById("mp_descricao").value=data.descricao||"";document.getElementById("mp_drive_link").value=data.drive_link||"";document.getElementById("mp_data_publicacao").value=data.data_publicacao||"";document.getElementById("mp_likes_obj").value=data.likes_objetivo||"";document.getElementById("mp_comentarios_obj").value=data.comentarios_objetivo||"";document.getElementById("mp_partilhas_obj").value=data.partilhas_objetivo||"";document.getElementById("mp_likes_real").value=data.likes_real||"";document.getElementById("mp_comentarios_real").value=data.comentarios_real||"";document.getElementById("mp_partilhas_real").value=data.partilhas_real||"";}}
+        else{["mp_nome","mp_descricao","mp_drive_link","mp_data_publicacao","mp_likes_obj","mp_comentarios_obj","mp_partilhas_obj","mp_likes_real","mp_comentarios_real","mp_partilhas_real"].forEach(id=>document.getElementById(id).value="");document.getElementById("mp_tipo").value="Post";document.getElementById("mp_rede").value="Instagram";}
+        document.getElementById("modal-post").classList.remove("hidden");
+    }
+    function fecharModalPost() { document.getElementById("modal-post").classList.add("hidden"); }
+    async function guardarPost() {
+        const nome=document.getElementById("mp_nome").value.trim(); if(!nome){showMsg("modal-post-msg","O nome é obrigatório.",true);return;}
+        const payload={campanha_id:currentCampId,nome,tipo:document.getElementById("mp_tipo").value,rede:document.getElementById("mp_rede").value,descricao:document.getElementById("mp_descricao").value.trim()||null,drive_link:document.getElementById("mp_drive_link").value.trim()||null,data_publicacao:document.getElementById("mp_data_publicacao").value||null,likes_objetivo:Number(document.getElementById("mp_likes_obj").value)||0,comentarios_objetivo:Number(document.getElementById("mp_comentarios_obj").value)||0,partilhas_objetivo:Number(document.getElementById("mp_partilhas_obj").value)||0,likes_real:Number(document.getElementById("mp_likes_real").value)||0,comentarios_real:Number(document.getElementById("mp_comentarios_real").value)||0,partilhas_real:Number(document.getElementById("mp_partilhas_real").value)||0};
+        const {error}=editingPostId?await supabaseClient.from("posts").update(payload).eq("id",editingPostId):await supabaseClient.from("posts").insert([payload]);
+        if(error){showMsg("modal-post-msg","Erro: "+error.message,true);return;}
+        fecharModalPost(); await carregarPostsAll(currentCampId);
+        const {data:camp}=await supabaseClient.from("campanhas").select("*").eq("id",currentCampId).single();
+        if(camp) await carregarResumo(camp);
+    }
+
+    async function carregarPedidos() {
+        const {data:p}=await supabaseClient.from("profiles").select("id,email").eq("role","pending_admin");
+        const w=document.getElementById("pending-requests");
+        if(!p||!p.length){w.innerHTML='<p class="text-slate-400 text-sm">Sem pedidos pendentes.</p>';return;}
+        w.innerHTML=`<div class="space-y-3">${p.map(u=>`<div class="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-200"><span class="text-sm text-slate-700">${u.email||u.id}</span><div class="flex gap-2"><button onclick="responderPedido('${u.id}','admin')" class="text-xs bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded-lg font-medium">Aprovar</button><button onclick="responderPedido('${u.id}','viewer')" class="text-xs bg-slate-200 hover:bg-red-100 text-slate-600 hover:text-red-600 px-3 py-1 rounded-lg font-medium">Recusar</button></div></div>`).join("")}</div>`;
+    }
+    async function responderPedido(uid,role) { await supabaseClient.from("profiles").update({role}).eq("id",uid); await carregarPedidos(); }
+
+    function showMsg(id,text,isError=false) { const el=document.getElementById(id);el.textContent=text;el.className=`text-sm text-center mt-1 ${isError?"text-red-500":"text-blue-600"}`;el.classList.remove("hidden"); }
+
+    function showToast(message, isError = false) {
+        const existing = document.getElementById("_toast");
+        if (existing) existing.remove();
+        const toast = document.createElement("div");
+        toast.id = "_toast";
+        toast.textContent = message;
+        toast.style.cssText = `position:fixed;bottom:24px;left:50%;transform:translateX(-50%);padding:10px 20px;border-radius:10px;font-size:14px;font-weight:500;font-family:"Inter",sans-serif;z-index:9999;box-shadow:0 4px 20px rgba(0,0,0,0.12);background:${isError?"#fef2f2":"#f0fdf4"};color:${isError?"#dc2626":"#16a34a"};border:1px solid ${isError?"#fecaca":"#bbf7d0"};`;
+        document.body.appendChild(toast);
+        setTimeout(() => toast.remove(), 3500);
+    }
+
+    function confirmarAcao(titulo, subtitulo, onConfirm) {
+        const existing = document.getElementById("_confirm-modal");
+        if (existing) existing.remove();
+        const modal = document.createElement("div");
+        modal.id = "_confirm-modal";
+        modal.style.cssText = "position:fixed;inset:0;background:rgba(15,23,42,0.4);z-index:9998;display:flex;align-items:center;justify-content:center;";
+        modal.innerHTML = `<div style="background:#fff;border-radius:16px;padding:28px;max-width:360px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,0.15);font-family:Inter,sans-serif;">
+            <p style="font-size:16px;font-weight:700;color:#0f172a;margin:0 0 8px">${titulo}</p>
+            <p style="font-size:13px;color:#64748b;margin:0 0 24px">${subtitulo}</p>
+            <div style="display:flex;gap:10px;justify-content:flex-end;">
+                <button id="_confirm-cancel" style="padding:8px 18px;border-radius:8px;border:1px solid #e2e8f0;background:#fff;color:#64748b;font-size:13px;font-weight:600;cursor:pointer;">Cancelar</button>
+                <button id="_confirm-ok" style="padding:8px 18px;border-radius:8px;border:none;background:#ef4444;color:#fff;font-size:13px;font-weight:600;cursor:pointer;">Eliminar</button>
+            </div>
+        </div>`;
+        document.body.appendChild(modal);
+        document.getElementById("_confirm-cancel").onclick = () => modal.remove();
+        document.getElementById("_confirm-ok").onclick = () => { modal.remove(); onConfirm(); };
+        modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+    }
+
+    init();
+</script>
+</body>
+</html>

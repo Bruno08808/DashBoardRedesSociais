@@ -1,0 +1,928 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AdMetrics | Crescimento</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        /* ── Page-specific ── */
+        .tab-btn { padding:6px 16px; border-radius:8px; font-size:13px; font-weight:600; cursor:pointer; border:1px solid #e2e8f0; transition:all 0.15s; }
+        .tab-btn.active  { background:#2563eb; color:#fff; border-color:#2563eb; }
+        .tab-btn.inactive { background:#fff; color:#64748b; }
+        .tab-btn.inactive:hover { border-color:#cbd5e1; color:#334155; }
+        .filter-btn { padding:5px 12px; border-radius:999px; font-size:12px; font-weight:600; cursor:pointer; border:1px solid #e2e8f0; background:#fff; color:#64748b; transition:all 0.15s; }
+        .filter-btn:hover { border-color:#cbd5e1; color:#334155; }
+        .filter-btn.active { background:#eff6ff; border-color:#2563eb; color:#2563eb; }
+        .tl-wrap { overflow-x:auto; padding-bottom:4px; }
+        .tl-grid { display:grid; min-width:500px; }
+        .tl-day-label { font-size:10px; color:#94a3b8; text-align:center; padding:0 1px 3px; white-space:nowrap; }
+        .tl-day-label.today { color:#2563eb; font-weight:700; }
+        .tl-bar { height:22px; border-radius:4px; margin:1px 1px; display:flex; align-items:center; overflow:hidden; font-size:10px; font-weight:600; color:#fff; padding:0 6px; white-space:nowrap; }
+        .tl-gap { height:22px; margin:1px 1px; }
+        .score-ring { width:44px; height:44px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:700; flex-shrink:0; border:2px solid; }
+
+        /* ── Hero KPI card ── */
+        .kpi-hero {
+            background: #fff;
+            border: 1px solid #e2e8f0;
+            border-radius: 14px;
+            padding: 20px 24px;
+            position: relative; overflow: hidden;
+        }
+        .kpi-hero::after {
+            content:''; position:absolute; bottom:-18px; right:-18px;
+            width:80px; height:80px; border-radius:50%;
+            background: rgba(37,99,235,0.05);
+        }
+        .kpi-hero.ig::after { background: rgba(225,48,108,0.05); }
+        .kpi-hero.fb::after { background: rgba(24,119,242,0.05); }
+
+        /* ── Sparkline mini ── */
+        .sparkline-wrap { height: 36px; margin-top: 8px; }
+
+        /* ── Delta badge ── */
+        .delta-up   { color:#16a34a; font-size:11px; font-weight:600; }
+        .delta-down { color:#dc2626; font-size:11px; font-weight:600; }
+        .delta-flat { color:#94a3b8; font-size:11px; font-weight:500; }
+
+        /* ── Trend indicator ── */
+        .trend-pill {
+            display:inline-flex; align-items:center; gap:4px;
+            padding:2px 8px; border-radius:999px; font-size:11px; font-weight:600;
+        }
+        .trend-up      { background:#f0fdf4; color:#16a34a; }
+        .trend-down    { background:#fef2f2; color:#dc2626; }
+        .trend-neutral { background:#f8fafc; color:#94a3b8; }
+
+        /* ── Tipo performance bars ── */
+        .tipo-row { display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:1px solid #f8fafc; }
+        .tipo-row:last-child { border-bottom:none; }
+        .tipo-bar-bg { flex:1; height:6px; background:#f1f5f9; border-radius:999px; overflow:hidden; }
+        .tipo-bar-fill { height:100%; border-radius:999px; transition:width 0.6s ease; }
+
+        /* ── Monthly grid ── */
+        .month-cell {
+            background:#fff; border:1px solid #e2e8f0; border-radius:10px;
+            padding:12px; text-align:center; transition:box-shadow 0.15s;
+        }
+        .month-cell:hover { box-shadow:0 2px 12px rgba(0,0,0,0.07); }
+
+        /* ── Consistency heatmap ── */
+        .heat-cell {
+            width:14px; height:14px; border-radius:3px;
+            display:inline-block; transition:transform 0.1s;
+        }
+        .heat-cell:hover { transform:scale(1.3); }
+
+        /* ── Alcance card ── */
+        .alcance-bar { height:8px; border-radius:999px; overflow:hidden; background:#f1f5f9; }
+        .alcance-fill { height:100%; border-radius:999px; transition:width 0.6s; }
+
+        /* ── Compare head-to-head ── */
+        .h2h-bar-ig { background: linear-gradient(90deg,#e1306c,#f56565); }
+        .h2h-bar-fb { background: linear-gradient(90deg,#1877f2,#60a5fa); }
+
+        /* ── Skeleton ── */
+        .skeleton { background: linear-gradient(90deg,#f1f5f9 25%,#e2e8f0 50%,#f1f5f9 75%); background-size:200% 100%; animation:shimmer 1.4s infinite; border-radius:10px; }
+        @keyframes shimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
+
+        /* ── Admin form ── */
+        .admin-divider { display:flex; align-items:center; gap:12px; margin:28px 0 20px; }
+        .admin-divider::before,.admin-divider::after { content:''; flex:1; height:1px; background:#e2e8f0; }
+    </style>
+</head>
+<body class="min-h-screen">
+<div id="sidebar-container"></div>
+<main class="ml-60 min-h-screen p-8">
+
+    <!-- ── Header ── -->
+    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+        <div>
+            <h2 class="text-2xl font-bold text-slate-900">Crescimento</h2>
+            <p class="text-slate-500 text-sm mt-0.5">Performance orgânica das redes sociais</p>
+        </div>
+        <div class="flex items-center gap-2 flex-wrap">
+            <div class="flex gap-1 p-1 bg-white border border-slate-200 rounded-xl">
+                <button id="tab-ig"      onclick="switchRede('instagram')"  class="tab-btn active">📸 Instagram</button>
+                <button id="tab-fb"      onclick="switchRede('facebook')"   class="tab-btn inactive">📘 Facebook</button>
+                <button id="tab-compare" onclick="switchRede('compare')"    class="tab-btn inactive">⚖️ Comparar</button>
+            </div>
+            <div class="flex gap-1">
+                <button class="filter-btn active" id="f-week"  onclick="setFilter('week')">7d</button>
+                <button class="filter-btn"        id="f-month" onclick="setFilter('month')">30d</button>
+                <button class="filter-btn"        id="f-year"  onclick="setFilter('year')">1a</button>
+                <button class="filter-btn"        id="f-all"   onclick="setFilter('all')">Tudo</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Alerts ── -->
+    <div id="alerts-container" class="hidden mb-6 space-y-2"></div>
+
+    <!-- ── Timeline ── -->
+    <div class="card p-6 mb-6 shadow-sm">
+        <h3 class="text-sm font-semibold text-slate-700 mb-4">Campanhas · Timeline</h3>
+        <div class="tl-wrap"><div id="timeline-container"></div></div>
+        <div id="timeline-legend" class="flex flex-wrap gap-4 mt-4"></div>
+    </div>
+
+    <!-- ══ COMPARE VIEW ══ -->
+    <div id="compare-view" class="hidden mb-6">
+        <div class="grid grid-cols-2 gap-4 mb-5">
+            <div class="card p-5 shadow-sm border-t-2" style="border-color:#e1306c">
+                <div class="flex items-center gap-2 mb-4"><span class="text-xl">📸</span><h3 class="text-sm font-bold text-slate-800">Instagram</h3></div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div><p class="text-xs text-slate-400 uppercase font-semibold">Seguidores</p><p id="cmp-ig-seg" class="text-xl font-bold text-slate-900 mt-1">—</p></div>
+                    <div><p class="text-xs text-slate-400 uppercase font-semibold">Engagement</p><p id="cmp-ig-eng" class="text-xl font-bold text-slate-900 mt-1">—</p></div>
+                    <div><p class="text-xs text-slate-400 uppercase font-semibold">Likes</p><p id="cmp-ig-likes" class="text-lg font-bold text-slate-900 mt-1">—</p></div>
+                    <div><p class="text-xs text-slate-400 uppercase font-semibold">Coment.</p><p id="cmp-ig-comt" class="text-lg font-bold text-slate-900 mt-1">—</p></div>
+                    <div><p class="text-xs text-slate-400 uppercase font-semibold">Partilhas</p><p id="cmp-ig-part" class="text-lg font-bold text-slate-900 mt-1">—</p></div>
+                    <div><p class="text-xs text-slate-400 uppercase font-semibold">Eng. Rate</p><p id="cmp-ig-rate" class="text-lg font-bold text-pink-600 mt-1">—</p></div>
+                </div>
+            </div>
+            <div class="card p-5 shadow-sm border-t-2" style="border-color:#1877f2">
+                <div class="flex items-center gap-2 mb-4"><span class="text-xl">📘</span><h3 class="text-sm font-bold text-slate-800">Facebook</h3></div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div><p class="text-xs text-slate-400 uppercase font-semibold">Seguidores</p><p id="cmp-fb-seg" class="text-xl font-bold text-slate-900 mt-1">—</p></div>
+                    <div><p class="text-xs text-slate-400 uppercase font-semibold">Engagement</p><p id="cmp-fb-eng" class="text-xl font-bold text-slate-900 mt-1">—</p></div>
+                    <div><p class="text-xs text-slate-400 uppercase font-semibold">Likes</p><p id="cmp-fb-likes" class="text-lg font-bold text-slate-900 mt-1">—</p></div>
+                    <div><p class="text-xs text-slate-400 uppercase font-semibold">Coment.</p><p id="cmp-fb-comt" class="text-lg font-bold text-slate-900 mt-1">—</p></div>
+                    <div><p class="text-xs text-slate-400 uppercase font-semibold">Partilhas</p><p id="cmp-fb-part" class="text-lg font-bold text-slate-900 mt-1">—</p></div>
+                    <div><p class="text-xs text-slate-400 uppercase font-semibold">Eng. Rate</p><p id="cmp-fb-rate" class="text-lg font-bold text-blue-600 mt-1">—</p></div>
+                </div>
+            </div>
+        </div>
+        <div class="card p-6 shadow-sm mb-5">
+            <h3 class="text-sm font-semibold text-slate-700 mb-5">Head-to-Head</h3>
+            <div id="h2h-metrics" class="space-y-5"></div>
+        </div>
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+            <div class="card p-6 shadow-sm">
+                <h3 class="text-sm font-semibold text-slate-700 mb-4">Engagement ao longo do tempo</h3>
+                <canvas id="cmpEngChart" height="200"></canvas>
+            </div>
+            <div class="card p-6 shadow-sm">
+                <h3 class="text-sm font-semibold text-slate-700 mb-4">Crescimento de Seguidores</h3>
+                <canvas id="cmpSegChart" height="200"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <!-- ══ NORMAL VIEW ══ -->
+    <div id="normal-view">
+
+        <!-- ── Row 1: Hero KPIs ── -->
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+            <!-- Seguidores — hero -->
+            <div class="kpi-hero col-span-2 lg:col-span-1 shadow-sm" id="hero-seg">
+                <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Seguidores</p>
+                <p id="kpi-seguidores" class="text-3xl font-bold text-slate-900">—</p>
+                <div id="kpi-seg-delta" class="mt-1 min-h-[18px]"></div>
+                <div class="sparkline-wrap"><canvas id="sparkSeg"></canvas></div>
+            </div>
+            <div class="card p-5 shadow-sm">
+                <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Engagement Total</p>
+                <p id="kpi-eng-total" class="text-2xl font-bold text-slate-900 mt-2">—</p>
+                <div id="kpi-eng-delta" class="mt-1 min-h-[18px]"></div>
+                <p class="text-xs text-slate-400 mt-2">no período</p>
+            </div>
+            <div class="card p-5 shadow-sm">
+                <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Engagement Rate</p>
+                <p id="kpi-eng-rate" class="text-2xl font-bold text-blue-600 mt-2">—</p>
+                <div id="kpi-trend-pill" class="mt-1 min-h-[18px]"></div>
+                <p class="text-xs text-slate-400 mt-2">engagement / seguidores</p>
+            </div>
+            <div class="card p-5 shadow-sm">
+                <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Alcance Médio</p>
+                <p id="kpi-alcance" class="text-2xl font-bold text-slate-900 mt-2">—</p>
+                <div id="kpi-alcance-sub" class="mt-1 min-h-[18px]"></div>
+                <p class="text-xs text-slate-400 mt-2">por registo</p>
+            </div>
+        </div>
+
+        <!-- ── Row 2: Secondary KPIs ── -->
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+            <div class="card p-4 shadow-sm">
+                <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider">❤️ Likes</p>
+                <p id="kpi-likes" class="text-xl font-bold text-slate-900 mt-1">—</p>
+                <div id="kpi-likes-delta" class="mt-0.5"></div>
+            </div>
+            <div class="card p-4 shadow-sm">
+                <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider">💬 Comentários</p>
+                <p id="kpi-comentarios" class="text-xl font-bold text-slate-900 mt-1">—</p>
+                <div id="kpi-comt-delta" class="mt-0.5"></div>
+            </div>
+            <div class="card p-4 shadow-sm">
+                <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider">🔁 Partilhas</p>
+                <p id="kpi-partilhas" class="text-xl font-bold text-slate-900 mt-1">—</p>
+                <div id="kpi-part-delta" class="mt-0.5"></div>
+            </div>
+            <div class="card p-4 shadow-sm">
+                <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider">📅 Frequência</p>
+                <p id="kpi-freq" class="text-xl font-bold text-slate-900 mt-1">—</p>
+                <p class="text-xs text-slate-400 mt-0.5">posts / semana</p>
+            </div>
+        </div>
+
+        <!-- ── Row 3: Main charts ── -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-5">
+            <div class="card p-6 shadow-sm">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-sm font-semibold text-slate-700">Crescimento de Seguidores</h3>
+                    <span id="seg-trend-badge" class="hidden trend-pill text-xs"></span>
+                </div>
+                <div id="seg-empty" class="hidden text-center py-10 text-slate-400"><p class="text-3xl mb-2">📈</p><p class="text-sm">Sem registos para este período.</p></div>
+                <canvas id="segChart" height="160"></canvas>
+            </div>
+            <div class="card p-6 shadow-sm">
+                <h3 class="text-sm font-semibold text-slate-700 mb-4">Engagement por Registo</h3>
+                <div id="eng-empty" class="hidden text-center py-10 text-slate-400"><p class="text-3xl mb-2">💬</p><p class="text-sm">Sem registos para este período.</p></div>
+                <canvas id="engChart" height="160"></canvas>
+            </div>
+        </div>
+
+        <!-- ── Row 4: Alcance + Consistência ── -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-5">
+            <!-- Alcance vs Engagement -->
+            <div class="card p-6 shadow-sm">
+                <div class="flex items-center justify-between mb-1">
+                    <h3 class="text-sm font-semibold text-slate-700">Alcance vs Engagement</h3>
+                    <span class="text-xs text-slate-400">por registo</span>
+                </div>
+                <p class="text-xs text-slate-400 mb-4">Quanto do alcance se converte em engagement ativo</p>
+                <div id="alcance-empty" class="hidden text-center py-8 text-slate-400"><p class="text-2xl mb-2">📡</p><p class="text-sm">Sem dados de alcance.</p></div>
+                <div id="alcance-list" class="space-y-3"></div>
+            </div>
+
+            <!-- Consistência de publicação -->
+            <div class="card p-6 shadow-sm">
+                <div class="flex items-center justify-between mb-1">
+                    <h3 class="text-sm font-semibold text-slate-700">Consistência de Publicação</h3>
+                    <span id="consistency-badge" class="hidden trend-pill text-xs"></span>
+                </div>
+                <p class="text-xs text-slate-400 mb-4">Semanas com pelo menos 1 post (últimas 12 semanas)</p>
+                <div id="consistency-grid" class="flex flex-wrap gap-1.5 mb-3"></div>
+                <p id="consistency-summary" class="text-xs text-slate-500"></p>
+            </div>
+        </div>
+
+        <!-- ── Row 5: Tipo por engagement + Melhor dia ── -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-5">
+            <!-- Tipo de conteúdo por engagement médio -->
+            <div class="card p-6 shadow-sm">
+                <div class="flex items-center justify-between mb-1">
+                    <h3 class="text-sm font-semibold text-slate-700">Engagement por Tipo de Conteúdo</h3>
+                </div>
+                <p class="text-xs text-slate-400 mb-4">Média de engagement por post, por tipo</p>
+                <div id="tipo-empty" class="hidden text-center py-8 text-slate-400"><p class="text-2xl mb-2">📊</p><p class="text-sm">Sem posts no período.</p></div>
+                <div id="tipo-list" class="space-y-1"></div>
+            </div>
+
+            <!-- Melhor dia da semana -->
+            <div class="card p-6 shadow-sm">
+                <h3 class="text-sm font-semibold text-slate-700 mb-1">Melhor Dia da Semana</h3>
+                <p class="text-xs text-slate-400 mb-4">Score médio por dia de publicação (todos os posts)</p>
+                <div id="dia-empty" class="hidden text-center py-8 text-slate-400"><p class="text-2xl mb-2">📅</p><p class="text-sm">Sem dados suficientes.</p></div>
+                <canvas id="diaChart" height="160"></canvas>
+            </div>
+        </div>
+
+        <!-- ── Row 6: Visão mensal ── -->
+        <div class="card p-6 shadow-sm mb-5">
+            <div class="flex items-center justify-between mb-4">
+                <div>
+                    <h3 class="text-sm font-semibold text-slate-700">Evolução Mensal</h3>
+                    <p class="text-xs text-slate-400 mt-0.5">Engagement total por mês</p>
+                </div>
+                <button onclick="exportPostsCSV()" class="text-xs px-3 py-1.5 bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-600 rounded-lg transition font-medium">↓ CSV</button>
+            </div>
+            <div id="monthly-empty" class="hidden text-center py-8 text-slate-400"><p class="text-sm">Sem dados suficientes para visão mensal.</p></div>
+            <div id="monthly-grid" class="grid gap-3" style="grid-template-columns: repeat(auto-fill, minmax(100px, 1fr))"></div>
+        </div>
+
+        <!-- ── Row 7: Posts ── -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-6">
+            <div class="card p-6 shadow-sm">
+                <h3 class="text-sm font-semibold text-slate-700 mb-4">Últimos 5 Posts</h3>
+                <div id="recent-posts" class="space-y-2"><div class="skeleton h-12"></div><div class="skeleton h-12 mt-2"></div></div>
+            </div>
+            <div class="card p-6 shadow-sm">
+                <h3 class="text-sm font-semibold text-slate-700 mb-1">Melhores Posts do Período</h3>
+                <p class="text-xs text-slate-400 mb-4">Score = likes×2 + coment.×3.5 + partilhas×4.5</p>
+                <div id="best-posts" class="space-y-3"><div class="skeleton h-10"></div><div class="skeleton h-10 mt-2"></div></div>
+            </div>
+        </div>
+    </div><!-- /normal-view -->
+
+    <!-- ── Admin form ── -->
+    <div id="admin-form" class="hidden">
+        <div class="admin-divider">
+            <span class="text-xs text-slate-400 font-semibold uppercase tracking-wider">Registar Dados</span>
+        </div>
+        <div class="card p-6 shadow-sm border-t-2 border-blue-600 max-w-2xl">
+            <h4 class="text-sm font-bold mb-5 text-slate-900">Novo Registo — <span id="form-rede-label" class="text-blue-600">Instagram</span></h4>
+            <div class="grid grid-cols-2 gap-4 mb-4">
+                <div><label class="text-xs font-semibold text-slate-500 uppercase block mb-1">Data</label><input type="date" id="cresc_data" class="field"></div>
+                <div><label class="text-xs font-semibold text-slate-500 uppercase block mb-1">Seguidores</label><input type="number" id="cresc_seguidores" class="field" placeholder="Ex: 1250" min="0"></div>
+                <div><label class="text-xs font-semibold text-slate-500 uppercase block mb-1">Likes</label><input type="number" id="cresc_likes" class="field" placeholder="Ex: 340" min="0"></div>
+                <div><label class="text-xs font-semibold text-slate-500 uppercase block mb-1">Comentários</label><input type="number" id="cresc_comentarios" class="field" placeholder="Ex: 28" min="0"></div>
+                <div><label class="text-xs font-semibold text-slate-500 uppercase block mb-1">Partilhas</label><input type="number" id="cresc_partilhas" class="field" placeholder="Ex: 15" min="0"></div>
+                <div><label class="text-xs font-semibold text-slate-500 uppercase block mb-1">Alcance <span class="text-slate-400 font-normal">(opcional)</span></label><input type="number" id="cresc_alcance" class="field" placeholder="Ex: 4200" min="0"></div>
+            </div>
+            <button onclick="guardarCrescimento()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 rounded-lg transition text-sm">Guardar Registo</button>
+            <p id="cresc-msg" class="text-sm text-center mt-2 hidden"></p>
+        </div>
+    </div>
+</main>
+
+<script src="supabase.js"></script>
+<script src="auth.js"></script>
+<script src="nav.js"></script>
+<script>
+    Chart.defaults.color       = "#94a3b8";
+    Chart.defaults.borderColor = "#f1f5f9";
+    const scaleOpts = { ticks:{color:"#94a3b8"}, grid:{color:"#f1f5f9"} };
+    const calcScore = p => ((p.likes_real||0)*2)+((p.comentarios_real||0)*3.5)+((p.partilhas_real||0)*4.5);
+    const DIAS = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+
+    const charts = { seg:null, eng:null, dia:null, spark:null, cmpEng:null, cmpSeg:null };
+    let currentRede = "instagram", currentFilter = "week";
+    let allCamps = [], cachedPosts = [];
+
+    // ── Utils ────────────────────────────────────────────────────
+    function renderDelta(curr, prev, el) {
+        if (prev == null || prev === 0 || currentFilter === 'all') {
+            el.innerHTML = '<span class="delta-flat">sem período anterior</span>'; return;
+        }
+        const d = curr - prev, pct = Math.round((d/prev)*100);
+        const sign = d >= 0 ? '+' : '';
+        const cls  = d > 0 ? 'delta-up' : d < 0 ? 'delta-down' : 'delta-flat';
+        const arrow = d > 0 ? '↑' : d < 0 ? '↓' : '→';
+        el.innerHTML = `<span class="${cls}">${arrow} ${sign}${d.toLocaleString('pt-PT')} vs ant. (${sign}${pct}%)</span>`;
+    }
+
+    function getPrevRange() {
+        const n = new Date();
+        if (currentFilter === 'week')  { const f=new Date(n); f.setDate(f.getDate()-14); const t=new Date(n); t.setDate(t.getDate()-7);   return {from:f.toISOString().split('T')[0], to:t.toISOString().split('T')[0]}; }
+        if (currentFilter === 'month') { const f=new Date(n); f.setDate(f.getDate()-60); const t=new Date(n); t.setDate(t.getDate()-30);  return {from:f.toISOString().split('T')[0], to:t.toISOString().split('T')[0]}; }
+        if (currentFilter === 'year')  { const f=new Date(n); f.setFullYear(f.getFullYear()-2); const t=new Date(n); t.setFullYear(t.getFullYear()-1); return {from:f.toISOString().split('T')[0], to:t.toISOString().split('T')[0]}; }
+        return null;
+    }
+
+    function getDateFrom() {
+        const n = new Date();
+        if (currentFilter==='week')  { const d=new Date(n); d.setDate(d.getDate()-7);           return d.toISOString().split('T')[0]; }
+        if (currentFilter==='month') { const d=new Date(n); d.setDate(d.getDate()-30);          return d.toISOString().split('T')[0]; }
+        if (currentFilter==='year')  { const d=new Date(n); d.setFullYear(d.getFullYear()-1);   return d.toISOString().split('T')[0]; }
+        return null;
+    }
+
+    // Linear regression slope (trend)
+    function linearTrend(values) {
+        const n = values.length; if (n < 2) return 0;
+        const xs = values.map((_,i) => i);
+        const mx = xs.reduce((a,b)=>a+b,0)/n, my = values.reduce((a,b)=>a+b,0)/n;
+        const num = xs.reduce((a,x,i)=>a+(x-mx)*(values[i]-my),0);
+        const den = xs.reduce((a,x)=>a+(x-mx)**2,0);
+        return den === 0 ? 0 : num/den;
+    }
+
+    function exportToCSV(data, filename) {
+        if (!data||!data.length) return;
+        const keys = Object.keys(data[0]);
+        const csv  = [keys.join(','),...data.map(r=>keys.map(k=>`"${String(r[k]??'').replace(/"/g,'""')}"`).join(','))].join('\n');
+        Object.assign(document.createElement('a'),{href:'data:text/csv;charset=utf-8,'+encodeURIComponent('\uFEFF'+csv),download:filename}).click();
+    }
+
+    function exportPostsCSV() {
+        exportToCSV(cachedPosts.map(p=>({
+            nome:p.nome, tipo:p.tipo||'Post', rede:p.rede||'Instagram',
+            campanha:p.campanhas?.nome||'', data_publicacao:p.data_publicacao||'',
+            likes_real:p.likes_real||0, comentarios_real:p.comentarios_real||0,
+            partilhas_real:p.partilhas_real||0, score:calcScore(p).toFixed(1)
+        })), `posts_${currentRede}_${currentFilter}.csv`);
+    }
+
+    // ── Init ─────────────────────────────────────────────────────
+    async function init() {
+        const profile = await getUserProfile(); if (!profile) return;
+        buildSidebar("crescimento.html", profile.role);
+        if (profile.role === "admin") document.getElementById("admin-form").classList.remove("hidden");
+        const {data} = await supabaseClient.from("campanhas").select("id,nome,cor,data_inicio,data_fim,status").order("data_inicio");
+        allCamps = data || [];
+        renderTimeline();
+        await Promise.all([loadData(), loadAlerts()]);
+    }
+
+    // ── Alerts ───────────────────────────────────────────────────
+    async function loadAlerts() {
+        const today  = new Date(); today.setHours(0,0,0,0);
+        const todayS = today.toISOString().split('T')[0];
+        const in7    = new Date(today); in7.setDate(in7.getDate()+7);
+        const ago30  = new Date(today); ago30.setDate(ago30.getDate()-30);
+        const [{ data: endingSoon }, { data: recentPosts }] = await Promise.all([
+            supabaseClient.from('campanhas').select('id,nome,data_fim').eq('status','Ativa').gte('data_fim',todayS).lte('data_fim',in7.toISOString().split('T')[0]),
+            supabaseClient.from('posts').select('nome,campanha_id,likes_real,comentarios_real,partilhas_real,likes_objetivo,comentarios_objetivo,partilhas_objetivo,campanhas(nome)').gte('data_publicacao',ago30.toISOString().split('T')[0]).lte('data_publicacao',todayS)
+        ]);
+        const alerts = [];
+        (endingSoon||[]).forEach(c => {
+            const dias = Math.round((new Date(c.data_fim+'T12:00:00')-today)/(1000*60*60*24));
+            alerts.push({href:`campanhas.html?id=${c.id}`,cls:'bg-amber-50 border-amber-200 text-amber-800',msg:`⏰ A campanha <strong>${c.nome}</strong> termina ${dias===0?'hoje':dias===1?'amanhã':`em ${dias} dias`}.`});
+        });
+        (recentPosts||[]).filter(p=>{
+            const oT=(p.likes_objetivo||0)+(p.comentarios_objetivo||0)+(p.partilhas_objetivo||0);
+            return oT>0 && ((p.likes_real||0)+(p.comentarios_real||0)+(p.partilhas_real||0))/oT<0.3;
+        }).forEach(p=>{
+            const oT=(p.likes_objetivo||0)+(p.comentarios_objetivo||0)+(p.partilhas_objetivo||0);
+            const rT=(p.likes_real||0)+(p.comentarios_real||0)+(p.partilhas_real||0);
+            alerts.push({href:`campanhas.html?id=${p.campanha_id}`,cls:'bg-red-50 border-red-200 text-red-700',msg:`⚠️ <strong>${p.nome}</strong>${p.campanhas?.nome?' ('+p.campanhas.nome+')':''} atingiu apenas ${Math.round((rT/oT)*100)}% do objetivo.`});
+        });
+        const cont = document.getElementById('alerts-container');
+        if (!alerts.length) { cont.classList.add('hidden'); return; }
+        cont.classList.remove('hidden');
+        cont.innerHTML = alerts.map(a=>`<a href="${a.href}" class="flex items-center gap-3 p-3 rounded-lg text-sm border hover:shadow-sm transition-shadow ${a.cls}" style="text-decoration:none;color:inherit;"><span class="flex-1">${a.msg}</span><span class="text-xs font-medium opacity-60 flex-shrink-0">Ver →</span></a>`).join('')
+            + `<a href="alertas.html" class="flex items-center justify-center gap-1 text-xs text-slate-500 hover:text-blue-600 py-1 transition font-medium">Ver todos os alertas →</a>`;
+    }
+
+    // ── Timeline ─────────────────────────────────────────────────
+    function renderTimeline() {
+        const today=new Date(); today.setHours(0,0,0,0);
+        const BACK=10,FWD=10,TOTAL=BACK+1+FWD;
+        const days=Array.from({length:TOTAL},(_,i)=>{const d=new Date(today);d.setDate(d.getDate()-BACK+i);return d;});
+        const wS=days[0],wE=days[days.length-1];
+        const rc=allCamps.filter(c=>{
+            if(!c.data_inicio&&!c.data_fim) return false;
+            const s=c.data_inicio?new Date(c.data_inicio):null,e=c.data_fim?new Date(c.data_fim):null;
+            if(s&&s>wE) return false; if(e&&e<wS) return false; return true;
+        });
+        const cont=document.getElementById("timeline-container");
+        if (!rc.length) { cont.innerHTML='<p class="text-slate-400 text-sm">Nenhuma campanha no intervalo ±10 dias.</p>'; document.getElementById("timeline-legend").innerHTML=""; return; }
+        const grid=document.createElement("div"); grid.className="tl-grid"; grid.style.gridTemplateColumns=`repeat(${TOTAL},minmax(0,1fr))`;
+        days.forEach(d=>{
+            const isT=d.getTime()===today.getTime(); const cell=document.createElement("div");
+            if(isT){cell.style.background="rgba(37,99,235,0.04)";cell.style.borderLeft="1px solid rgba(37,99,235,0.2)";cell.style.borderRight="1px solid rgba(37,99,235,0.2)";}
+            const lbl=document.createElement("div"); lbl.className="tl-day-label"+(isT?" today":"");
+            const dd=d.getDate().toString().padStart(2,"0"),mm=(d.getMonth()+1).toString().padStart(2,"0");
+            lbl.textContent=isT?"Hoje":`${dd}/${mm}`; cell.appendChild(lbl); grid.appendChild(cell);
+        });
+        rc.forEach(c=>{
+            const cor=c.cor||"#2563eb",cs=c.data_inicio?new Date(c.data_inicio):null,ce=c.data_fim?new Date(c.data_fim):null;
+            days.forEach((d,idx)=>{
+                const cell=document.createElement("div"); const inR=(!cs||d>=cs)&&(!ce||d<=ce);
+                if(inR){
+                    const iF=idx===0||(cs&&d.getTime()===cs.getTime()),iL=idx===days.length-1||(ce&&d.getTime()===ce.getTime());
+                    const bar=document.createElement("div"); bar.className="tl-bar"; bar.style.background=cor;
+                    bar.style.opacity=c.status==="Inativa"?"0.4":"1";
+                    bar.style.borderRadius=iF&&iL?"4px":iF?"4px 0 0 4px":iL?"0 4px 4px 0":"0";
+                    if(iF) bar.textContent=c.nome; cell.appendChild(bar);
+                } else { const g=document.createElement("div"); g.className="tl-gap"; cell.appendChild(g); }
+                grid.appendChild(cell);
+            });
+        });
+        cont.innerHTML=""; cont.appendChild(grid);
+        document.getElementById("timeline-legend").innerHTML=rc.map(c=>`
+            <div class="flex items-center gap-2 text-xs text-slate-500">
+                <div class="w-3 h-3 rounded-sm" style="background:${c.cor||"#2563eb"}"></div><span>${c.nome}</span>
+                ${c.status==="Inativa"?'<span class="text-slate-400">(inativa)</span>':""}
+            </div>`).join("");
+    }
+
+    // ── Switches ─────────────────────────────────────────────────
+    let cmpEngChart, cmpSegChart;
+    function switchRede(r) {
+        currentRede = r;
+        document.getElementById("tab-ig").className      = "tab-btn "+(r==="instagram"?"active":"inactive");
+        document.getElementById("tab-fb").className      = "tab-btn "+(r==="facebook" ?"active":"inactive");
+        document.getElementById("tab-compare").className = "tab-btn "+(r==="compare"  ?"active":"inactive");
+        const isCompare = r === "compare";
+        document.getElementById("compare-view").classList.toggle("hidden",!isCompare);
+        document.getElementById("normal-view").classList.toggle("hidden",isCompare);
+        if (!isCompare) document.getElementById("form-rede-label").textContent = r==="instagram"?"Instagram":"Facebook";
+        loadData();
+    }
+    function setFilter(f) {
+        currentFilter=f;
+        ["week","month","year","all"].forEach(k=>document.getElementById("f-"+k).className="filter-btn"+(k===f?" active":""));
+        loadData();
+    }
+
+    // ── Load data ─────────────────────────────────────────────────
+    async function loadData() {
+        if (currentRede === "compare") { await loadCompareData(); return; }
+        const from = getDateFrom();
+        const prev = getPrevRange();
+        const redeCapital = currentRede === "instagram" ? "Instagram" : "Facebook";
+
+        let qCresco = supabaseClient.from("crescimento_conta").select("*").eq("rede",currentRede).order("data_registo",{ascending:true});
+        if (from) qCresco = qCresco.gte("data_registo",from);
+
+        let qPosts = supabaseClient.from("posts").select("*,campanhas(nome,cor)").eq("rede",redeCapital).order("data_publicacao",{ascending:false}).limit(300);
+        if (from) qPosts = qPosts.gte("data_publicacao",from);
+
+        // All-time posts for day-of-week chart (no filter)
+        const qAllPosts = supabaseClient.from("posts").select("data_publicacao,likes_real,comentarios_real,partilhas_real,tipo,rede").eq("rede",redeCapital).not("data_publicacao","is",null).limit(500);
+
+        const [resCresco, resPosts, resAllPosts, resRecent] = await Promise.all([
+            qCresco, qPosts, qAllPosts,
+            supabaseClient.from("posts").select("*,campanhas(nome,cor)").eq("rede",redeCapital).order("data_publicacao",{ascending:false}).limit(5)
+        ]);
+
+        let prevCd=[], prevPd=[];
+        if (prev) {
+            const [rPC,rPP] = await Promise.all([
+                supabaseClient.from("crescimento_conta").select("seguidores").eq("rede",currentRede).gte("data_registo",prev.from).lte("data_registo",prev.to).order("data_registo",{ascending:false}).limit(1),
+                supabaseClient.from("posts").select("likes_real,comentarios_real,partilhas_real").eq("rede",redeCapital).gte("data_publicacao",prev.from).lte("data_publicacao",prev.to)
+            ]);
+            prevCd = rPC.data||[]; prevPd = rPP.data||[];
+        }
+
+        const cd = resCresco.data||[];
+        const pd = resPosts.data||[];
+        cachedPosts = pd;
+
+        updateKPIs(cd, pd, prevCd, prevPd);
+        renderMainCharts(cd);
+        renderAlcanceVsEngagement(cd);
+        renderTipoEngagement(resAllPosts.data||[]);
+        renderBestDayChart(resAllPosts.data||[]);
+        renderConsistency(resAllPosts.data||[]);
+        renderMonthly(pd);
+        renderRecentPosts(resRecent.data||[]);
+        renderBestPosts(pd);
+    }
+
+    // ── KPIs ─────────────────────────────────────────────────────
+    function updateKPIs(cd, pd, prevCd, prevPd) {
+        const latestSeg = cd.length ? (cd[cd.length-1].seguidores??null) : null;
+        const prevSeg   = prevCd.length ? (prevCd[0].seguidores??null) : null;
+        document.getElementById("kpi-seguidores").textContent = latestSeg!=null ? latestSeg.toLocaleString("pt-PT") : "—";
+        renderDelta(latestSeg, prevSeg, document.getElementById("kpi-seg-delta"));
+
+        const tL=pd.reduce((a,b)=>a+(b.likes_real||0),0), tC=pd.reduce((a,b)=>a+(b.comentarios_real||0),0), tP=pd.reduce((a,b)=>a+(b.partilhas_real||0),0);
+        const pL=prevPd.reduce((a,b)=>a+(b.likes_real||0),0), pC=prevPd.reduce((a,b)=>a+(b.comentarios_real||0),0), pPP=prevPd.reduce((a,b)=>a+(b.partilhas_real||0),0);
+        document.getElementById("kpi-likes").textContent       = tL.toLocaleString("pt-PT");
+        document.getElementById("kpi-comentarios").textContent = tC.toLocaleString("pt-PT");
+        document.getElementById("kpi-partilhas").textContent   = tP.toLocaleString("pt-PT");
+        renderDelta(tL, pL, document.getElementById("kpi-likes-delta"));
+        renderDelta(tC, pC, document.getElementById("kpi-comt-delta"));
+        renderDelta(tP, pPP, document.getElementById("kpi-part-delta"));
+
+        const engT = tL+tC+tP, prevEng = pL+pC+pPP;
+        document.getElementById("kpi-eng-total").textContent = engT.toLocaleString("pt-PT");
+        renderDelta(engT, prevEng, document.getElementById("kpi-eng-delta"));
+
+        const rate = latestSeg&&latestSeg>0 ? ((engT/latestSeg)*100).toFixed(2)+"%" : "—";
+        document.getElementById("kpi-eng-rate").textContent = rate;
+
+        // Trend pill from regression
+        const segVals = cd.map(d=>d.seguidores).filter(v=>v!=null);
+        const trendEl = document.getElementById("kpi-trend-pill");
+        if (segVals.length >= 3) {
+            const slope = linearTrend(segVals);
+            const pct   = segVals[0] > 0 ? Math.abs(Math.round((slope/segVals[0])*100)) : 0;
+            if (slope > 0)      trendEl.innerHTML = `<span class="trend-pill trend-up">↑ tendência positiva ${pct>0?'(+'+pct+'%/registo)':''}</span>`;
+            else if (slope < 0) trendEl.innerHTML = `<span class="trend-pill trend-down">↓ tendência negativa ${pct>0?'(-'+pct+'%/registo)':''}</span>`;
+            else                trendEl.innerHTML = `<span class="trend-pill trend-neutral">→ estável</span>`;
+        } else { trendEl.innerHTML=''; }
+
+        // Alcance médio
+        const alcValues = cd.map(d=>d.alcance).filter(v=>v!=null&&v>0);
+        const alcMed    = alcValues.length ? Math.round(alcValues.reduce((a,b)=>a+b,0)/alcValues.length) : null;
+        document.getElementById("kpi-alcance").textContent = alcMed!=null ? alcMed.toLocaleString("pt-PT") : "—";
+        document.getElementById("kpi-alcance-sub").innerHTML = alcMed!=null && latestSeg!=null && latestSeg>0
+            ? `<span class="text-xs text-slate-400">${((alcMed/latestSeg)*100).toFixed(1)}% dos seguidores</span>` : '';
+
+        const days = currentFilter==='week'?7:currentFilter==='month'?30:currentFilter==='year'?365:null;
+        document.getElementById("kpi-freq").textContent = days&&pd.length ? (pd.length/days*7).toFixed(1) : pd.length ? pd.length+" posts" : "—";
+
+        // Sparkline dos seguidores
+        const sparkData = cd.map(d=>d.seguidores).filter(v=>v!=null);
+        if (sparkData.length >= 2) {
+            if (charts.spark) charts.spark.destroy();
+            const color = currentRede==="instagram" ? "#e1306c" : "#1877f2";
+            charts.spark = new Chart(document.getElementById("sparkSeg"),{
+                type:"line",
+                data:{labels:sparkData.map((_,i)=>i),datasets:[{data:sparkData,borderColor:color,borderWidth:1.5,pointRadius:0,tension:0.4,fill:true,backgroundColor:color+'18'}]},
+                options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{enabled:false}},scales:{x:{display:false},y:{display:false,beginAtZero:false}},animation:{duration:400}}
+            });
+        }
+
+        // Seg trend badge
+        const badge = document.getElementById("seg-trend-badge");
+        if (segVals.length >= 3) {
+            const slope = linearTrend(segVals);
+            badge.classList.remove("hidden");
+            if (slope > 0)      { badge.className="trend-pill trend-up text-xs"; badge.textContent="↑ crescendo"; }
+            else if (slope < 0) { badge.className="trend-pill trend-down text-xs"; badge.textContent="↓ descendo"; }
+            else                { badge.className="trend-pill trend-neutral text-xs"; badge.textContent="→ estável"; }
+        } else { badge.classList.add("hidden"); }
+    }
+
+    // ── Main charts ───────────────────────────────────────────────
+    function renderMainCharts(data) {
+        const color  = currentRede==="instagram" ? "#e1306c" : "#1877f2";
+        const color2 = currentRede==="instagram" ? "rgba(225,48,108,0.07)" : "rgba(24,119,242,0.07)";
+        const empty  = !data.length;
+        document.getElementById("seg-empty").classList.toggle("hidden",!empty);
+        document.getElementById("eng-empty").classList.toggle("hidden",!empty);
+        document.getElementById("segChart").classList.toggle("hidden",empty);
+        document.getElementById("engChart").classList.toggle("hidden",empty);
+        if (empty) return;
+
+        const labels = data.map(d=>d.data_registo);
+
+        if (charts.seg) charts.seg.destroy();
+        charts.seg = new Chart(document.getElementById("segChart"),{
+            type:"line",
+            data:{labels,datasets:[{
+                label:"Seguidores",data:data.map(d=>d.seguidores),
+                borderColor:color,backgroundColor:color2,fill:true,tension:0.35,
+                pointRadius:3,pointBackgroundColor:color,pointHoverRadius:5
+            }]},
+            options:{responsive:true,plugins:{legend:{display:false},tooltip:{callbacks:{title:i=>{const d=new Date(i[0].label+'T12:00:00');return d.toLocaleDateString('pt-PT',{day:'numeric',month:'short',year:'numeric'});}}}},scales:{x:scaleOpts,y:{...scaleOpts,beginAtZero:false}}}
+        });
+
+        if (charts.eng) charts.eng.destroy();
+        charts.eng = new Chart(document.getElementById("engChart"),{
+            type:"bar",
+            data:{labels,datasets:[
+                {label:"Likes",       data:data.map(d=>Number(d.likes)||0),       backgroundColor:color,    borderRadius:3},
+                {label:"Comentários", data:data.map(d=>Number(d.comentarios)||0), backgroundColor:color+'99',borderRadius:3},
+                {label:"Partilhas",   data:data.map(d=>Number(d.partilhas)||0),   backgroundColor:color+'44',borderRadius:3}
+            ]},
+            options:{responsive:true,plugins:{legend:{labels:{color:"#94a3b8"}}},scales:{x:scaleOpts,y:scaleOpts}}
+        });
+    }
+
+    // ── Alcance vs Engagement ─────────────────────────────────────
+    function renderAlcanceVsEngagement(cd) {
+        const rows = cd.filter(d=>d.alcance&&d.alcance>0).slice(-8).reverse();
+        const el   = document.getElementById("alcance-list");
+        const empty = document.getElementById("alcance-empty");
+        if (!rows.length) { empty.classList.remove("hidden"); el.innerHTML=""; return; }
+        empty.classList.add("hidden");
+        const maxAlc = Math.max(...rows.map(d=>d.alcance));
+        const color  = currentRede==="instagram" ? "#e1306c" : "#1877f2";
+        el.innerHTML = rows.map(d => {
+            const eng  = (d.likes||0)+(d.comentarios||0)+(d.partilhas||0);
+            const rate = d.alcance>0 ? ((eng/d.alcance)*100).toFixed(1) : "0.0";
+            const pct  = Math.round((d.alcance/maxAlc)*100);
+            const data_fmt = new Date(d.data_registo+'T12:00:00').toLocaleDateString('pt-PT',{day:'numeric',month:'short'});
+            return `<div class="flex items-center gap-3">
+                <span class="text-xs text-slate-400 w-14 flex-shrink-0">${data_fmt}</span>
+                <div class="flex-1">
+                    <div class="alcance-bar">
+                        <div class="alcance-fill" style="width:${pct}%;background:${color}22;"></div>
+                    </div>
+                    <div style="margin-top:2px;height:4px;background:#f1f5f9;border-radius:999px;overflow:hidden;">
+                        <div style="width:${Math.min(parseFloat(rate)*5,100)}%;height:100%;border-radius:999px;background:${color};transition:width 0.6s;"></div>
+                    </div>
+                </div>
+                <div class="text-right flex-shrink-0">
+                    <p class="text-xs font-bold text-slate-800">${d.alcance.toLocaleString('pt-PT')}</p>
+                    <p class="text-[10px] font-semibold" style="color:${color}">${rate}% eng.</p>
+                </div>
+            </div>`;
+        }).join("");
+    }
+
+    // ── Tipo de conteúdo por engagement médio ─────────────────────
+    function renderTipoEngagement(posts) {
+        const tipos = ['Post','Reel','Story','Carrossel','Live'];
+        const stats = tipos.map(t => {
+            const ps = posts.filter(p=>(p.tipo||'Post')===t);
+            const total = ps.reduce((a,p)=>a+(p.likes_real||0)+(p.comentarios_real||0)+(p.partilhas_real||0),0);
+            return { tipo:t, count:ps.length, avg: ps.length>0 ? Math.round(total/ps.length) : 0 };
+        }).filter(s=>s.count>0).sort((a,b)=>b.avg-a.avg);
+
+        const el = document.getElementById("tipo-list"), empty = document.getElementById("tipo-empty");
+        if (!stats.length) { empty.classList.remove("hidden"); el.innerHTML=""; return; }
+        empty.classList.add("hidden");
+
+        const maxAvg  = stats[0].avg;
+        const colors  = { Post:'#2563eb', Reel:'#9333ea', Story:'#ea580c', Carrossel:'#16a34a', Live:'#dc2626' };
+        el.innerHTML = stats.map((s,i) => {
+            const pct = maxAvg>0 ? Math.round((s.avg/maxAvg)*100) : 0;
+            const isTop = i===0;
+            return `<div class="tipo-row">
+                <span class="text-xs font-semibold w-20 flex-shrink-0" style="color:${colors[s.tipo]||'#64748b'}">${s.tipo}${isTop?' 🏆':''}</span>
+                <div class="tipo-bar-bg">
+                    <div class="tipo-bar-fill" style="width:${pct}%;background:${colors[s.tipo]||'#2563eb'}"></div>
+                </div>
+                <div class="text-right flex-shrink-0 ml-2">
+                    <span class="text-xs font-bold text-slate-800">${s.avg.toLocaleString('pt-PT')}</span>
+                    <span class="text-[10px] text-slate-400 ml-1">(${s.count}p)</span>
+                </div>
+            </div>`;
+        }).join("");
+    }
+
+    // ── Melhor dia da semana ──────────────────────────────────────
+    function renderBestDayChart(posts) {
+        const ds = Array(7).fill(null).map(()=>({total:0,count:0}));
+        posts.forEach(p=>{
+            if (!p.data_publicacao) return;
+            const day = new Date(p.data_publicacao+'T12:00:00').getDay();
+            ds[day].total += calcScore(p); ds[day].count++;
+        });
+        const avgs   = ds.map(d=>d.count>0 ? Math.round(d.total/d.count) : 0);
+        const empty  = avgs.every(v=>v===0);
+        document.getElementById("dia-empty").classList.toggle("hidden",!empty);
+        document.getElementById("diaChart").classList.toggle("hidden",empty);
+        if (empty) return;
+        const maxIdx = avgs.indexOf(Math.max(...avgs));
+        const color  = currentRede==="instagram" ? "#e1306c" : "#1877f2";
+        if (charts.dia) charts.dia.destroy();
+        charts.dia = new Chart(document.getElementById("diaChart"),{
+            type:"bar",
+            data:{labels:DIAS,datasets:[{label:"Score médio",data:avgs,backgroundColor:avgs.map((_,i)=>i===maxIdx?color:color+'33'),borderRadius:4}]},
+            options:{responsive:true,plugins:{legend:{display:false}},scales:{x:scaleOpts,y:scaleOpts}}
+        });
+    }
+
+    // ── Consistência de publicação (heatmap semanal) ──────────────
+    function renderConsistency(posts) {
+        const WEEKS = 12;
+        const today = new Date(); today.setHours(23,59,59,999);
+        const postDates = new Set(posts.map(p=>p.data_publicacao?.split('T')[0]).filter(Boolean));
+
+        const weekData = [];
+        for (let w=WEEKS-1; w>=0; w--) {
+            const weekStart = new Date(today);
+            weekStart.setDate(today.getDate() - today.getDay() - w*7);
+            weekStart.setHours(0,0,0,0);
+            const weekEnd = new Date(weekStart); weekEnd.setDate(weekStart.getDate()+6);
+            let count = 0;
+            for (let d=new Date(weekStart); d<=weekEnd; d.setDate(d.getDate()+1)) {
+                const k = d.toISOString().split('T')[0];
+                if (postDates.has(k)) count++;
+            }
+            weekData.push({ start:weekStart, count });
+        }
+
+        const active = weekData.filter(w=>w.count>0).length;
+        const pct    = Math.round((active/WEEKS)*100);
+        const color  = currentRede==="instagram" ? "#e1306c" : "#1877f2";
+
+        const badge = document.getElementById("consistency-badge");
+        badge.classList.remove("hidden");
+        if (pct>=75)      { badge.className="trend-pill trend-up text-xs"; badge.textContent=`${pct}% consistente`; }
+        else if (pct>=40) { badge.className="trend-pill trend-neutral text-xs"; badge.textContent=`${pct}% consistente`; }
+        else              { badge.className="trend-pill trend-down text-xs"; badge.textContent=`${pct}% consistente`; }
+
+        document.getElementById("consistency-grid").innerHTML = weekData.map(w => {
+            const intensity = w.count===0 ? 0 : w.count===1 ? 0.3 : w.count<=3 ? 0.6 : 1;
+            const bg = w.count===0 ? '#f1f5f9' : `${color}${Math.round(intensity*255).toString(16).padStart(2,'0')}`;
+            const label = w.start.toLocaleDateString('pt-PT',{day:'numeric',month:'short'});
+            return `<div class="heat-cell" style="background:${bg}" title="${label}: ${w.count} post(s)"></div>`;
+        }).join("");
+
+        document.getElementById("consistency-summary").textContent =
+            `${active} de ${WEEKS} semanas com publicação · melhor semana: ${Math.max(...weekData.map(w=>w.count))} posts`;
+    }
+
+    // ── Visão mensal ──────────────────────────────────────────────
+    function renderMonthly(posts) {
+        const monthly = {};
+        posts.forEach(p => {
+            if (!p.data_publicacao) return;
+            const key = p.data_publicacao.substring(0,7); // YYYY-MM
+            if (!monthly[key]) monthly[key] = { eng:0, posts:0 };
+            monthly[key].eng += (p.likes_real||0)+(p.comentarios_real||0)+(p.partilhas_real||0);
+            monthly[key].posts++;
+        });
+        const keys = Object.keys(monthly).sort();
+        const empty = document.getElementById("monthly-empty");
+        const grid  = document.getElementById("monthly-grid");
+        if (keys.length < 2) { empty.classList.remove("hidden"); grid.innerHTML=""; return; }
+        empty.classList.add("hidden");
+        const maxEng = Math.max(...keys.map(k=>monthly[k].eng), 1);
+        const color  = currentRede==="instagram" ? "#e1306c" : "#1877f2";
+        grid.innerHTML = keys.map(k => {
+            const m = monthly[k];
+            const pct = Math.round((m.eng/maxEng)*100);
+            const [year,month] = k.split('-');
+            const label = new Date(Number(year),Number(month)-1,1).toLocaleDateString('pt-PT',{month:'short',year:'2-digit'});
+            return `<div class="month-cell">
+                <p class="text-xs text-slate-400 font-semibold mb-1">${label}</p>
+                <p class="text-base font-bold text-slate-900">${m.eng.toLocaleString('pt-PT')}</p>
+                <div style="margin:6px 0 4px;height:3px;background:#f1f5f9;border-radius:999px;overflow:hidden;">
+                    <div style="width:${pct}%;height:100%;border-radius:999px;background:${color};transition:width 0.6s;"></div>
+                </div>
+                <p class="text-[10px] text-slate-400">${m.posts} post${m.posts!==1?'s':''}</p>
+            </div>`;
+        }).join("");
+    }
+
+    // ── Post cards ────────────────────────────────────────────────
+    function renderRecentPosts(posts) {
+        const wrap = document.getElementById("recent-posts");
+        if (!posts.length) { wrap.innerHTML='<div class="text-center py-8 text-slate-400"><p class="text-3xl mb-2">📭</p><p class="text-sm">Sem posts ainda.</p></div>'; return; }
+        wrap.innerHTML = posts.map(p => {
+            const cor=p.campanhas?.cor||"#2563eb", score=calcScore(p);
+            const dias=p.data_publicacao?(()=>{const d=Math.round((new Date()-new Date(p.data_publicacao+'T12:00:00'))/(1000*60*60*24));return d===0?"Hoje":d>0?`Há ${d}d`:`Em ${Math.abs(d)}d`;})():"—";
+            return `<div class="flex items-center gap-3 p-3 rounded-xl border border-slate-100 bg-slate-50 hover:bg-white hover:border-slate-200 transition cursor-pointer" onclick="window.location='posts.html'">
+                <div class="w-1 self-stretch rounded-full flex-shrink-0" style="background:${cor}"></div>
+                <div class="flex-1 min-w-0">
+                    <p class="text-sm font-semibold text-slate-900 truncate">${p.nome}</p>
+                    <div class="flex gap-3 text-xs text-slate-400 mt-0.5">
+                        <span>❤️ ${p.likes_real||0}</span><span>💬 ${p.comentarios_real||0}</span><span>🔁 ${p.partilhas_real||0}</span>
+                        <span class="text-slate-300">·</span><span>${dias}</span>
+                    </div>
+                </div>
+                <div class="score-ring" style="border-color:${cor};color:${cor}">${score.toFixed(0)}</div>
+            </div>`;
+        }).join("");
+    }
+
+    function renderBestPosts(posts) {
+        const wrap = document.getElementById("best-posts");
+        if (!posts.length) { wrap.innerHTML='<div class="text-center py-8 text-slate-400"><p class="text-3xl mb-2">🏆</p><p class="text-sm">Sem posts no período.</p></div>'; return; }
+        const sorted = [...posts].map(p=>({...p,score:calcScore(p)})).filter(p=>p.score>0).sort((a,b)=>b.score-a.score).slice(0,5);
+        if (!sorted.length) { wrap.innerHTML='<p class="text-slate-400 text-sm">Nenhum post com engagement registado.</p>'; return; }
+        const maxS = sorted[0].score;
+        const color = currentRede==="instagram" ? "#e1306c" : "#1877f2";
+        wrap.innerHTML = sorted.map((p,i)=>{
+            const cor=p.campanhas?.cor||color, pct=Math.round((p.score/maxS)*100);
+            const medal=i===0?"🥇":i===1?"🥈":i===2?"🥉":`#${i+1}`;
+            return `<div class="flex items-center gap-3">
+                <span class="text-sm w-5 text-center flex-shrink-0">${medal}</span>
+                <div class="flex-1 min-w-0">
+                    <div class="flex justify-between mb-1"><span class="text-sm font-medium text-slate-800 truncate">${p.nome}</span><span class="text-sm font-bold flex-shrink-0 ml-2" style="color:${cor}">${p.score.toFixed(1)}</span></div>
+                    <div style="background:#f1f5f9;border-radius:999px;height:4px;overflow:hidden;"><div style="width:${pct}%;background:${cor};height:100%;border-radius:999px;transition:width 0.6s;"></div></div>
+                    <div class="flex gap-2 mt-1 text-xs text-slate-400"><span>❤️ ${p.likes_real||0}</span><span>💬 ${p.comentarios_real||0}</span><span>🔁 ${p.partilhas_real||0}</span></div>
+                </div>
+            </div>`;
+        }).join("");
+    }
+
+    // ── Compare ───────────────────────────────────────────────────
+    async function loadCompareData() {
+        const from = getDateFrom();
+        let qIG=supabaseClient.from("crescimento_conta").select("*").eq("rede","instagram").order("data_registo",{ascending:true});
+        let qFB=supabaseClient.from("crescimento_conta").select("*").eq("rede","facebook").order("data_registo",{ascending:true});
+        let qPIG=supabaseClient.from("posts").select("*").eq("rede","Instagram").order("data_publicacao",{ascending:false}).limit(200);
+        let qPFB=supabaseClient.from("posts").select("*").eq("rede","Facebook").order("data_publicacao",{ascending:false}).limit(200);
+        if (from) { qIG=qIG.gte("data_registo",from); qFB=qFB.gte("data_registo",from); qPIG=qPIG.gte("data_publicacao",from); qPFB=qPFB.gte("data_publicacao",from); }
+        const [rIG,rFB,rPIG,rPFB] = await Promise.all([qIG,qFB,qPIG,qPFB]);
+        const cdIG=rIG.data||[],cdFB=rFB.data||[],pdIG=rPIG.data||[],pdFB=rPFB.data||[];
+        const lastSeg=d=>d.length?(d[d.length-1].seguidores??null):null;
+        const engSum=pd=>pd.reduce((a,p)=>a+(p.likes_real||0)+(p.comentarios_real||0)+(p.partilhas_real||0),0);
+        const igSeg=lastSeg(cdIG),fbSeg=lastSeg(cdFB),igEng=engSum(pdIG),fbEng=engSum(pdFB);
+        const igL=pdIG.reduce((a,p)=>a+(p.likes_real||0),0),fbL=pdFB.reduce((a,p)=>a+(p.likes_real||0),0);
+        const igC=pdIG.reduce((a,p)=>a+(p.comentarios_real||0),0),fbC=pdFB.reduce((a,p)=>a+(p.comentarios_real||0),0);
+        const igP=pdIG.reduce((a,p)=>a+(p.partilhas_real||0),0),fbP=pdFB.reduce((a,p)=>a+(p.partilhas_real||0),0);
+        document.getElementById("cmp-ig-seg").textContent  = igSeg!=null?igSeg.toLocaleString("pt-PT"):"—";
+        document.getElementById("cmp-fb-seg").textContent  = fbSeg!=null?fbSeg.toLocaleString("pt-PT"):"—";
+        document.getElementById("cmp-ig-eng").textContent  = igEng.toLocaleString("pt-PT");
+        document.getElementById("cmp-fb-eng").textContent  = fbEng.toLocaleString("pt-PT");
+        document.getElementById("cmp-ig-likes").textContent = igL.toLocaleString("pt-PT");
+        document.getElementById("cmp-fb-likes").textContent = fbL.toLocaleString("pt-PT");
+        document.getElementById("cmp-ig-comt").textContent  = igC.toLocaleString("pt-PT");
+        document.getElementById("cmp-fb-comt").textContent  = fbC.toLocaleString("pt-PT");
+        document.getElementById("cmp-ig-part").textContent  = igP.toLocaleString("pt-PT");
+        document.getElementById("cmp-fb-part").textContent  = fbP.toLocaleString("pt-PT");
+        document.getElementById("cmp-ig-rate").textContent  = igSeg&&igSeg>0?((igEng/igSeg)*100).toFixed(2)+"%":"—";
+        document.getElementById("cmp-fb-rate").textContent  = fbSeg&&fbSeg>0?((fbEng/fbSeg)*100).toFixed(2)+"%":"—";
+        const h2h=[{label:"❤️ Likes",ig:igL,fb:fbL},{label:"💬 Comentários",ig:igC,fb:fbC},{label:"🔁 Partilhas",ig:igP,fb:fbP},{label:"⭐ Engagement",ig:igEng,fb:fbEng}];
+        document.getElementById("h2h-metrics").innerHTML = h2h.map(m=>{
+            const max=Math.max(m.ig,m.fb,1),pIG=Math.round((m.ig/max)*100),pFB=Math.round((m.fb/max)*100);
+            const winner=m.ig>m.fb?"IG":m.fb>m.ig?"FB":"=";
+            return `<div><div class="flex justify-between text-xs font-semibold text-slate-500 mb-2"><span>${m.label}</span>${winner!=="="?`<span class="px-1.5 py-0.5 rounded text-[10px] font-bold ${winner==="IG"?"bg-pink-50 text-pink-600":"bg-blue-50 text-blue-600"}">${winner==="IG"?"📸 IG lidera":"📘 FB lidera"}</span>`:`<span class="text-slate-400 text-[10px]">Empate</span>`}</div>
+            <div class="grid grid-cols-2 gap-3">
+                <div><div class="flex justify-between text-xs mb-1"><span class="text-slate-500">📸 Instagram</span><span class="font-bold text-slate-800">${m.ig.toLocaleString("pt-PT")}</span></div><div style="background:#f1f5f9;border-radius:999px;height:5px;overflow:hidden;"><div class="h2h-bar-ig" style="width:${pIG}%;height:100%;border-radius:999px;transition:width 0.6s;"></div></div></div>
+                <div><div class="flex justify-between text-xs mb-1"><span class="text-slate-500">📘 Facebook</span><span class="font-bold text-slate-800">${m.fb.toLocaleString("pt-PT")}</span></div><div style="background:#f1f5f9;border-radius:999px;height:5px;overflow:hidden;"><div class="h2h-bar-fb" style="width:${pFB}%;height:100%;border-radius:999px;transition:width 0.6s;"></div></div></div>
+            </div></div>`;
+        }).join("");
+        const engByDate={};
+        pdIG.forEach(p=>{if(p.data_publicacao){const k=p.data_publicacao.split('T')[0];if(!engByDate[k])engByDate[k]={ig:0,fb:0};engByDate[k].ig+=(p.likes_real||0)+(p.comentarios_real||0)+(p.partilhas_real||0);}});
+        pdFB.forEach(p=>{if(p.data_publicacao){const k=p.data_publicacao.split('T')[0];if(!engByDate[k])engByDate[k]={ig:0,fb:0};engByDate[k].fb+=(p.likes_real||0)+(p.comentarios_real||0)+(p.partilhas_real||0);}});
+        const engDates=Object.keys(engByDate).sort();
+        if(cmpEngChart)cmpEngChart.destroy();
+        cmpEngChart=new Chart(document.getElementById("cmpEngChart"),{type:"line",data:{labels:engDates,datasets:[{label:"📸 Instagram",data:engDates.map(d=>engByDate[d].ig),borderColor:"#e1306c",backgroundColor:"rgba(225,48,108,0.06)",fill:true,tension:0.35,pointRadius:3},{label:"📘 Facebook",data:engDates.map(d=>engByDate[d].fb),borderColor:"#1877f2",backgroundColor:"rgba(24,119,242,0.06)",fill:true,tension:0.35,pointRadius:3}]},options:{responsive:true,plugins:{legend:{labels:{color:"#94a3b8"}}},scales:{x:scaleOpts,y:scaleOpts}}});
+        const allDates=[...new Set([...cdIG.map(d=>d.data_registo),...cdFB.map(d=>d.data_registo)])].sort();
+        const igSegByDate=Object.fromEntries(cdIG.map(d=>[d.data_registo,d.seguidores]));
+        const fbSegByDate=Object.fromEntries(cdFB.map(d=>[d.data_registo,d.seguidores]));
+        if(cmpSegChart)cmpSegChart.destroy();
+        cmpSegChart=new Chart(document.getElementById("cmpSegChart"),{type:"line",data:{labels:allDates,datasets:[{label:"📸 Instagram",data:allDates.map(d=>igSegByDate[d]??null),borderColor:"#e1306c",backgroundColor:"rgba(225,48,108,0.06)",fill:true,tension:0.35,spanGaps:true,pointRadius:3},{label:"📘 Facebook",data:allDates.map(d=>fbSegByDate[d]??null),borderColor:"#1877f2",backgroundColor:"rgba(24,119,242,0.06)",fill:true,tension:0.35,spanGaps:true,pointRadius:3}]},options:{responsive:true,plugins:{legend:{labels:{color:"#94a3b8"}}},scales:{x:scaleOpts,y:{...scaleOpts,beginAtZero:false}}}});
+    }
+
+    // ── Save ──────────────────────────────────────────────────────
+    async function guardarCrescimento() {
+        const payload={rede:currentRede,data_registo:document.getElementById("cresc_data").value,seguidores:Number(document.getElementById("cresc_seguidores").value)||null,likes:Number(document.getElementById("cresc_likes").value)||null,comentarios:Number(document.getElementById("cresc_comentarios").value)||null,partilhas:Number(document.getElementById("cresc_partilhas").value)||null,alcance:Number(document.getElementById("cresc_alcance").value)||null};
+        if (!payload.data_registo){showMsg("cresc-msg","Indica a data do registo.",true);return;}
+        const {error}=await supabaseClient.from("crescimento_conta").insert([payload]);
+        if(error){showMsg("cresc-msg","Erro: "+error.message,true);}
+        else{showMsg("cresc-msg","Registo guardado!");["cresc_data","cresc_seguidores","cresc_likes","cresc_comentarios","cresc_partilhas","cresc_alcance"].forEach(id=>document.getElementById(id).value="");await loadData();}
+    }
+    function showMsg(id,text,isError=false){const el=document.getElementById(id);el.textContent=text;el.className=`text-sm text-center mt-2 ${isError?"text-red-500":"text-blue-600"}`;el.classList.remove("hidden");setTimeout(()=>el.classList.add("hidden"),4000);}
+
+    init();
+</script>
+</body>
+</html>

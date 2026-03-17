@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AdMetrics | Alertas</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        .alert-row {
+            display:flex; align-items:flex-start; gap:14px;
+            padding:16px 20px; border-radius:10px; border:1px solid;
+            transition:opacity 0.2s, box-shadow 0.15s;
+        }
+        .alert-row.dismissed { opacity:0.45; }
+        .alert-link { cursor:pointer; }
+        .alert-link:hover { box-shadow:0 2px 12px rgba(0,0,0,0.08); }
+
+        .alert-urgent  { background:#fff7ed; border-color:#fed7aa; }
+        .alert-urgent .alert-link:hover  { border-color:#fb923c !important; }
+        .alert-warning { background:#fef2f2; border-color:#fecaca; }
+        .alert-warning .alert-link:hover { border-color:#f87171 !important; }
+        .alert-info    { background:#eff6ff; border-color:#bfdbfe; }
+        .alert-info .alert-link:hover    { border-color:#60a5fa !important; }
+
+        .alert-row.dismissed { background:#f8fafc !important; border-color:#e2e8f0 !important; }
+
+        .icon-wrap { width:36px; height:36px; border-radius:8px; display:flex; align-items:center; justify-content:center; flex-shrink:0; font-size:18px; }
+        .badge { display:inline-flex; align-items:center; gap:4px; font-size:11px; font-weight:600; padding:2px 8px; border-radius:999px; }
+
+        .read-btn {
+            flex-shrink:0; padding:5px 12px; border-radius:8px; font-size:11px; font-weight:600;
+            border:1px solid; cursor:pointer; transition:all 0.15s; white-space:nowrap;
+        }
+        .read-btn-active  { border-color:#cbd5e1; color:#64748b; background:#fff; }
+        .read-btn-active:hover  { border-color:#94a3b8; color:#334155; }
+        .read-btn-done   { border-color:#d1fae5; color:#059669; background:#f0fdf4; }
+        .read-btn-done:hover   { border-color:#6ee7b7; background:#ecfdf5; }
+    </style>
+</head>
+<body class="min-h-screen">
+<div id="sidebar-container"></div>
+<main class="ml-60 min-h-screen p-8">
+
+    <!-- Header -->
+    <div class="flex items-center justify-between mb-8">
+        <div>
+            <h2 class="text-2xl font-bold text-slate-900">Alertas</h2>
+            <p class="text-slate-500 text-sm mt-0.5">Campanhas e posts que precisam de atenção</p>
+        </div>
+        <div class="flex items-center gap-2">
+            <button onclick="clearAllDismissed()" id="btn-clear-read"
+                class="hidden text-xs px-3 py-2 bg-white border border-slate-200 hover:border-slate-300 text-slate-500 rounded-lg transition font-medium">
+                Repor lidos
+            </button>
+            <button onclick="loadAlerts()"
+                class="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 hover:border-slate-300 text-slate-600 text-sm font-medium rounded-lg transition shadow-sm">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                Atualizar
+            </button>
+        </div>
+    </div>
+
+    <!-- Filter: show/hide dismissed -->
+    <div class="flex items-center gap-3 mb-6">
+        <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Mostrar:</span>
+        <div class="flex gap-1 p-1 bg-white border border-slate-200 rounded-xl">
+            <button id="filter-all"    onclick="setViewFilter('all')"
+                class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-blue-600 text-white transition">Todos</button>
+            <button id="filter-active" onclick="setViewFilter('active')"
+                class="px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-500 hover:text-slate-700 transition">Por ler</button>
+            <button id="filter-read"   onclick="setViewFilter('read')"
+                class="px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-500 hover:text-slate-700 transition">Lidos</button>
+        </div>
+        <span id="unread-badge" class="hidden text-xs font-bold px-2 py-0.5 rounded-full bg-red-500 text-white"></span>
+    </div>
+
+    <!-- Loading -->
+    <div id="loading" class="text-center py-20 text-slate-400">
+        <div class="inline-block w-6 h-6 border-2 border-slate-200 border-t-blue-600 rounded-full animate-spin mb-3"></div>
+        <p class="text-sm">A verificar alertas...</p>
+    </div>
+
+    <!-- Empty -->
+    <div id="empty-state" class="hidden text-center py-20">
+        <p class="text-5xl mb-4">✅</p>
+        <h3 class="text-lg font-bold text-slate-900 mb-2">Tudo em ordem</h3>
+        <p class="text-slate-500 text-sm">Não há campanhas a terminar nem posts com baixa performance.</p>
+    </div>
+
+    <!-- SECTION: Campanhas a terminar -->
+    <div id="section-campanhas" class="hidden mb-8">
+        <div class="flex items-center gap-3 mb-4">
+            <div class="w-8 h-8 rounded-lg bg-orange-100 flex items-center justify-center text-sm">⏰</div>
+            <div>
+                <h3 class="text-base font-bold text-slate-900">Campanhas a Terminar</h3>
+                <p class="text-xs text-slate-500">Campanhas ativas que terminam nos próximos 7 dias</p>
+            </div>
+            <span id="badge-camp" class="ml-2 text-xs font-bold px-2 py-0.5 rounded-full bg-orange-100 text-orange-700"></span>
+        </div>
+        <div id="list-campanhas" class="space-y-3"></div>
+    </div>
+
+    <!-- SECTION: Posts baixa performance -->
+    <div id="section-posts" class="hidden mb-8">
+        <div class="flex items-center gap-3 mb-4">
+            <div class="w-8 h-8 rounded-lg bg-red-100 flex items-center justify-center text-sm">⚠️</div>
+            <div>
+                <h3 class="text-base font-bold text-slate-900">Posts com Baixa Performance</h3>
+                <p class="text-xs text-slate-500">Posts publicados (hoje ou antes) abaixo de 30% do objetivo</p>
+            </div>
+            <span id="badge-posts" class="ml-2 text-xs font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-700"></span>
+        </div>
+        <div id="list-posts" class="space-y-3"></div>
+    </div>
+
+</main>
+
+<script src="supabase.js"></script>
+<script src="auth.js"></script>
+<script src="nav.js"></script>
+<script>
+    // ── DISMISSED STORAGE ──────────────────────────────────────
+    // Keys: "camp_{id}" or "post_{id}"
+    function getDismissed() {
+        try { return new Set(JSON.parse(localStorage.getItem('admetrics_dismissed') || '[]')); }
+        catch { return new Set(); }
+    }
+    function saveDismissed(set) {
+        localStorage.setItem('admetrics_dismissed', JSON.stringify([...set]));
+    }
+    function isDismissed(key) { return getDismissed().has(key); }
+    function toggleDismissed(key) {
+        const s = getDismissed();
+        if (s.has(key)) s.delete(key); else s.add(key);
+        saveDismissed(s);
+    }
+    function clearAllDismissed() {
+        saveDismissed(new Set());
+        renderAll();
+    }
+
+    // ── STATE ──────────────────────────────────────────────────
+    let allCamps = [], allPosts = [], viewFilter = 'all';
+
+    function setViewFilter(f) {
+        viewFilter = f;
+        ['all','active','read'].forEach(k => {
+            document.getElementById('filter-'+k).className =
+                `px-3 py-1.5 rounded-lg text-xs font-semibold transition ${k===f ? 'bg-blue-600 text-white' : 'text-slate-500 hover:text-slate-700'}`;
+        });
+        renderAll();
+    }
+
+    // ── INIT ───────────────────────────────────────────────────
+    async function init() {
+        const profile = await getUserProfile(); if (!profile) return;
+        buildSidebar("alertas.html", profile.role);
+        await loadAlerts();
+    }
+
+    async function loadAlerts() {
+        document.getElementById("loading").classList.remove("hidden");
+        document.getElementById("empty-state").classList.add("hidden");
+        document.getElementById("section-campanhas").classList.add("hidden");
+        document.getElementById("section-posts").classList.add("hidden");
+
+        const today  = new Date(); today.setHours(0,0,0,0);
+        const todayS = today.toISOString().split('T')[0];
+        const in7    = new Date(today); in7.setDate(today.getDate()+7);
+        const in7S   = in7.toISOString().split('T')[0];
+        const ago30  = new Date(today); ago30.setDate(today.getDate()-30);
+        const ago30S = ago30.toISOString().split('T')[0];
+
+        const [rCamp, rPosts] = await Promise.all([
+            supabaseClient.from('campanhas')
+                .select('id, nome, cor, data_fim, plataforma')
+                .eq('status', 'Ativa')
+                .gte('data_fim', todayS)
+                .lte('data_fim', in7S)
+                .order('data_fim', { ascending: true }),
+            supabaseClient.from('posts')
+                .select('id, nome, tipo, rede, data_publicacao, campanha_id, likes_real, comentarios_real, partilhas_real, likes_objetivo, comentarios_objetivo, partilhas_objetivo, campanhas(id, nome, cor)')
+                .gte('data_publicacao', ago30S)
+                .lte('data_publicacao', todayS)   // ← NEVER future posts
+                .order('data_publicacao', { ascending: false })
+        ]);
+
+        allCamps = rCamp.data  || [];
+        allPosts = (rPosts.data || []).filter(p => {
+            const oT = (p.likes_objetivo||0)+(p.comentarios_objetivo||0)+(p.partilhas_objetivo||0);
+            const rT = (p.likes_real||0)+(p.comentarios_real||0)+(p.partilhas_real||0);
+            return oT > 0 && rT / oT < 0.3;
+        });
+
+        document.getElementById("loading").classList.add("hidden");
+        renderAll();
+    }
+
+    // ── RENDER ─────────────────────────────────────────────────
+    function renderAll() {
+        const dismissed = getDismissed();
+        const today = new Date(); today.setHours(0,0,0,0);
+
+        // Filter based on view
+        const filterFn = key => {
+            if (viewFilter === 'active') return !dismissed.has(key);
+            if (viewFilter === 'read')   return dismissed.has(key);
+            return true;
+        };
+
+        const visibleCamps = allCamps.filter(c => filterFn('camp_'+c.id));
+        const visiblePosts = allPosts.filter(p => filterFn('post_'+p.id));
+
+        // Unread badge
+        const unreadCount = allCamps.filter(c=>!dismissed.has('camp_'+c.id)).length +
+                            allPosts.filter(p=>!dismissed.has('post_'+p.id)).length;
+        const unreadBadge = document.getElementById('unread-badge');
+        if (unreadCount > 0) { unreadBadge.textContent = unreadCount; unreadBadge.classList.remove('hidden'); }
+        else { unreadBadge.classList.add('hidden'); }
+
+        // "Repor lidos" button
+        document.getElementById('btn-clear-read').classList.toggle('hidden', dismissed.size === 0);
+
+        // Empty state
+        if (!visibleCamps.length && !visiblePosts.length) {
+            document.getElementById("empty-state").classList.remove("hidden");
+            document.getElementById("section-campanhas").classList.add("hidden");
+            document.getElementById("section-posts").classList.add("hidden");
+            if (viewFilter === 'all' && allCamps.length === 0 && allPosts.length === 0) {
+                document.getElementById("empty-state").querySelector('p:last-child').textContent =
+                    "Não há campanhas a terminar nem posts com baixa performance.";
+            } else if (viewFilter === 'active') {
+                document.getElementById("empty-state").querySelector('p:last-child').textContent =
+                    "Todos os alertas estão marcados como lidos.";
+            } else {
+                document.getElementById("empty-state").querySelector('p:last-child').textContent =
+                    "Nenhum alerta marcado como lido.";
+            }
+            return;
+        }
+        document.getElementById("empty-state").classList.add("hidden");
+
+        // ── CAMPANHAS ─────────────────────────────────────────
+        document.getElementById("section-campanhas").classList.toggle("hidden", !allCamps.length);
+        if (allCamps.length) {
+            document.getElementById("badge-camp").textContent = allCamps.filter(c=>!dismissed.has('camp_'+c.id)).length + ' por ler';
+            document.getElementById("list-campanhas").innerHTML = allCamps.map(c => {
+                const key      = 'camp_'+c.id;
+                const isRead   = dismissed.has(key);
+                const hide     = (viewFilter==='active'&&isRead)||(viewFilter==='read'&&!isRead);
+                if (hide) return '';
+                const fim      = new Date(c.data_fim+'T12:00:00');
+                const dias     = Math.round((fim - today) / (1000*60*60*24));
+                const urgClass = dias===0?'alert-warning':dias<=2?'alert-urgent':'alert-info';
+                const iconBg   = dias===0?'bg-red-100':dias<=2?'bg-orange-100':'bg-blue-100';
+                const diasStr  = dias===0?'Termina <strong>hoje</strong>':dias===1?'Termina <strong>amanhã</strong>':`Termina em <strong>${dias} dias</strong>`;
+                const cor      = c.cor||'#2563eb';
+                const dateFmt  = new Date(c.data_fim+'T12:00:00').toLocaleDateString('pt-PT',{day:'numeric',month:'long',year:'numeric'});
+                const urgBadge = dias===0?'<span class="badge bg-red-100 text-red-700">Hoje</span>':dias<=2?'<span class="badge bg-orange-100 text-orange-700">Urgente</span>':'<span class="badge bg-blue-100 text-blue-700">Em breve</span>';
+                return `<div class="alert-row ${urgClass} ${isRead?'dismissed':''}" id="row-${key}">
+                    <div class="${iconBg} icon-wrap">⏰</div>
+                    <a href="campanhas.html?id=${c.id}" class="flex-1 min-w-0 alert-link block" style="text-decoration:none;color:inherit;">
+                        <div class="flex items-center gap-2 flex-wrap mb-1">
+                            <div class="w-2.5 h-2.5 rounded-full flex-shrink-0" style="background:${cor}"></div>
+                            <span class="text-sm font-bold text-slate-900">${c.nome}</span>
+                            <span class="badge bg-slate-100 text-slate-600">${c.plataforma}</span>
+                            ${urgBadge}
+                        </div>
+                        <p class="text-sm text-slate-600">${diasStr} — ${dateFmt}</p>
+                    </a>
+                    <button onclick="toggleRead('${key}')"
+                        class="read-btn ${isRead?'read-btn-done':'read-btn-active'}" id="btn-${key}">
+                        ${isRead?'✓ Lido':'Marcar lido'}
+                    </button>
+                </div>`;
+            }).filter(Boolean).join("");
+        }
+
+        // ── POSTS ──────────────────────────────────────────────
+        document.getElementById("section-posts").classList.toggle("hidden", !allPosts.length);
+        if (allPosts.length) {
+            document.getElementById("badge-posts").textContent = allPosts.filter(p=>!dismissed.has('post_'+p.id)).length + ' por ler';
+            const tipoCls = {Post:'bg-slate-100 text-slate-600',Reel:'bg-purple-50 text-purple-600',Story:'bg-blue-50 text-blue-600',Carrossel:'bg-amber-50 text-amber-600',Live:'bg-red-50 text-red-600'};
+            const redeCls = {Instagram:'bg-fuchsia-50 text-fuchsia-600',Facebook:'bg-blue-50 text-blue-600'};
+            document.getElementById("list-posts").innerHTML = allPosts.map(p => {
+                const key   = 'post_'+p.id;
+                const isRead = dismissed.has(key);
+                const hide  = (viewFilter==='active'&&isRead)||(viewFilter==='read'&&!isRead);
+                if (hide) return '';
+                const oT    = (p.likes_objetivo||0)+(p.comentarios_objetivo||0)+(p.partilhas_objetivo||0);
+                const rT    = (p.likes_real||0)+(p.comentarios_real||0)+(p.partilhas_real||0);
+                const pct   = Math.round((rT/oT)*100);
+                const cor   = p.campanhas?.cor||'#2563eb';
+                const rede  = p.rede||'Instagram';
+                const dataF = new Date(p.data_publicacao+'T12:00:00').toLocaleDateString('pt-PT',{day:'numeric',month:'short'});
+                const dias  = Math.round((today - new Date(p.data_publicacao+'T12:00:00')) / (1000*60*60*24));
+                const diasStr = dias===0?'publicado hoje':`publicado há ${dias} dia${dias!==1?'s':''}`;
+                const barCol  = pct<10?'#ef4444':pct<20?'#f97316':'#f59e0b';
+                return `<div class="alert-row alert-warning ${isRead?'dismissed':''}" id="row-${key}">
+                    <div class="bg-red-100 icon-wrap">📉</div>
+                    <a href="campanhas.html?id=${p.campanha_id}" class="flex-1 min-w-0 alert-link block" style="text-decoration:none;color:inherit;">
+                        <div class="flex items-center gap-2 flex-wrap mb-1">
+                            <div class="w-2.5 h-2.5 rounded-full flex-shrink-0" style="background:${cor}"></div>
+                            <span class="text-sm font-bold text-slate-900">${p.nome}</span>
+                            <span class="badge ${tipoCls[p.tipo]||tipoCls.Post}">${p.tipo||'Post'}</span>
+                            <span class="badge ${redeCls[rede]||''}">${rede==='Instagram'?'📸':'📘'} ${rede}</span>
+                            <span class="badge bg-red-100 text-red-700">${pct}% do objetivo</span>
+                        </div>
+                        ${p.campanhas?.nome?`<p class="text-xs text-slate-500 mb-1.5">Campanha: <strong class="text-slate-700">${p.campanhas.nome}</strong></p>`:''}
+                        <p class="text-xs text-slate-500 mb-2">${dataF} — ${diasStr}</p>
+                        <div class="grid grid-cols-3 gap-3">
+                            ${[['❤️','likes'],['💬','comentarios'],['🔁','partilhas']].map(([em,k])=>{
+                                const r=p[k+'_real']||0, o=p[k+'_objetivo']||0, pp=o>0?Math.min(Math.round((r/o)*100),100):0;
+                                return `<div>
+                                    <div class="flex justify-between text-xs mb-0.5">
+                                        <span class="text-slate-500">${em}</span>
+                                        <span class="font-medium text-slate-700">${r}<span class="font-normal text-slate-400">/${o}</span></span>
+                                    </div>
+                                    <div style="background:#f1f5f9;border-radius:999px;height:4px;overflow:hidden;">
+                                        <div style="width:${pp}%;background:${barCol};height:100%;border-radius:999px;"></div>
+                                    </div>
+                                </div>`;
+                            }).join('')}
+                        </div>
+                    </a>
+                    <button onclick="toggleRead('${key}')"
+                        class="read-btn ${isRead?'read-btn-done':'read-btn-active'}" id="btn-${key}">
+                        ${isRead?'✓ Lido':'Marcar lido'}
+                    </button>
+                </div>`;
+            }).filter(Boolean).join("");
+        }
+    }
+
+    // ── TOGGLE READ ────────────────────────────────────────────
+    function toggleRead(key) {
+        toggleDismissed(key);
+        renderAll();
+    }
+
+    init();
+</script>
+</body>
+</html>

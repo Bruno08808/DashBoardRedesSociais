@@ -1,0 +1,724 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AdMetrics | Posts</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        /* ── Page-specific styles ── */
+        .post-card {
+            background: #fff;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            transition: box-shadow 0.15s, border-color 0.15s, transform 0.15s;
+            cursor: pointer;
+        }
+        .post-card:hover {
+            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+            border-color: #cbd5e1;
+            transform: translateY(-1px);
+        }
+        .metric-pill {
+            display: inline-flex; align-items: center; gap: 4px;
+            padding: 3px 8px; border-radius: 999px;
+            font-size: 11px; font-weight: 600;
+            background: #f1f5f9; color: #475569;
+        }
+        .perf-bar-bg { background: #f1f5f9; border-radius: 999px; height: 4px; overflow: hidden; }
+        .perf-bar    { height: 100%; border-radius: 999px; transition: width 0.6s ease; }
+
+        .tipo-badge {
+            display: inline-flex; align-items: center;
+            padding: 2px 8px; border-radius: 6px;
+            font-size: 10px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+        }
+
+        /* Rank medal */
+        .rank-num {
+            width: 28px; height: 28px; border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 11px; font-weight: 700; flex-shrink: 0;
+        }
+
+        /* Overlay */
+        .overlay-backdrop {
+            position: fixed; inset: 0; background: rgba(15,23,42,0.45);
+            z-index: 50; display: flex; align-items: flex-end;
+            justify-content: center; padding: 0;
+        }
+        @media (min-width: 768px) {
+            .overlay-backdrop { align-items: center; padding: 24px; }
+        }
+        .overlay-panel {
+            background: #fff; border-radius: 20px 20px 0 0;
+            width: 100%; max-width: 560px; max-height: 92vh;
+            overflow-y: auto; padding: 28px;
+            animation: slideUp 0.25s ease;
+        }
+        @media (min-width: 768px) {
+            .overlay-panel { border-radius: 20px; animation: fadeIn 0.2s ease; }
+        }
+        @keyframes slideUp { from { transform: translateY(40px); opacity:0; } to { transform: translateY(0); opacity:1; } }
+        @keyframes fadeIn  { from { opacity:0; transform: scale(0.97); } to { opacity:1; transform: scale(1); } }
+
+        /* Edit inline */
+        .edit-input {
+            width: 80px; padding: 4px 8px; border: 1px solid #e2e8f0;
+            border-radius: 6px; font-size: 13px; font-family: 'Inter', sans-serif;
+            color: #0f172a; text-align: center;
+        }
+        .edit-input:focus { outline: none; border-color: #2563eb; }
+
+        /* Stat KPI strip */
+        .kpi-strip { display: grid; grid-template-columns: repeat(4,1fr); gap: 12px; }
+        .kpi-box { background: #f8fafc; border: 1px solid #f1f5f9; border-radius: 10px; padding: 12px; text-align: center; }
+
+        /* Skeleton loader */
+        .skeleton { background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%); background-size: 200% 100%; animation: shimmer 1.4s infinite; border-radius: 8px; }
+        @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
+        /* Sort active */
+        .sort-btn { padding: 5px 12px; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer; border: 1px solid #e2e8f0; background: #fff; color: #64748b; transition: all 0.15s; white-space: nowrap; }
+        .sort-btn:hover { border-color: #cbd5e1; color: #334155; }
+        .sort-btn.active { background: #eff6ff; border-color: #2563eb; color: #2563eb; }
+    </style>
+</head>
+<body class="min-h-screen">
+<div id="sidebar-container"></div>
+<main class="ml-60 min-h-screen p-8">
+
+    <!-- ── Header ── -->
+    <div class="flex flex-col md:flex-row md:items-start justify-between gap-4 mb-6">
+        <div>
+            <h2 class="text-2xl font-bold text-slate-900">Posts</h2>
+            <p class="text-slate-500 text-sm mt-0.5">Ranking e detalhe de todos os posts</p>
+        </div>
+        <div id="header-kpis" class="flex gap-4 text-right">
+            <div><p class="text-xs text-slate-400 font-semibold uppercase tracking-wide">Total posts</p><p id="kpi-total" class="text-xl font-bold text-slate-900 mt-0.5">—</p></div>
+            <div><p class="text-xs text-slate-400 font-semibold uppercase tracking-wide">Eng. médio</p><p id="kpi-avg-eng" class="text-xl font-bold text-slate-900 mt-0.5">—</p></div>
+            <div><p class="text-xs text-slate-400 font-semibold uppercase tracking-wide">Taxa objetivo</p><p id="kpi-obj-rate" class="text-xl font-bold text-blue-600 mt-0.5">—</p></div>
+        </div>
+    </div>
+
+    <!-- ── Filters bar ── -->
+    <div class="card p-4 mb-6 shadow-sm">
+        <div class="flex flex-wrap gap-3 items-end">
+
+            <!-- Campanha -->
+            <div class="flex-1 min-w-[160px]">
+                <label class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Campanha</label>
+                <select id="f-campanha" class="field" onchange="applyFilters()">
+                    <option value="">Todas</option>
+                </select>
+            </div>
+
+            <!-- Rede -->
+            <div>
+                <label class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Rede</label>
+                <select id="f-rede" class="field" style="width:auto" onchange="applyFilters()">
+                    <option value="">Todas</option>
+                    <option value="Instagram">📸 Instagram</option>
+                    <option value="Facebook">📘 Facebook</option>
+                </select>
+            </div>
+
+            <!-- Tipo -->
+            <div>
+                <label class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Tipo</label>
+                <select id="f-tipo" class="field" style="width:auto" onchange="applyFilters()">
+                    <option value="">Todos</option>
+                    <option value="Post">Post</option>
+                    <option value="Reel">Reel</option>
+                    <option value="Story">Story</option>
+                    <option value="Carrossel">Carrossel</option>
+                    <option value="Live">Live</option>
+                </select>
+            </div>
+
+            <!-- Período -->
+            <div>
+                <label class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Período</label>
+                <div class="flex gap-1">
+                    <button class="filter-btn active" id="fp-all"   onclick="setPeriodo('all')">Tudo</button>
+                    <button class="filter-btn"         id="fp-month" onclick="setPeriodo('month')">30d</button>
+                    <button class="filter-btn"         id="fp-week"  onclick="setPeriodo('week')">7d</button>
+                </div>
+            </div>
+
+            <!-- Performance -->
+            <div>
+                <label class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Performance</label>
+                <select id="f-perf" class="field" style="width:auto" onchange="applyFilters()">
+                    <option value="">Todos</option>
+                    <option value="above">Acima do objetivo</option>
+                    <option value="below">Abaixo do objetivo</option>
+                    <option value="no-obj">Sem objetivo</option>
+                </select>
+            </div>
+
+            <!-- Search -->
+            <div class="flex-1 min-w-[160px]">
+                <label class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Pesquisar</label>
+                <div class="search-wrap">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                    <input type="text" id="f-search" class="field" placeholder="Nome do post..." oninput="applyFilters()">
+                </div>
+            </div>
+
+            <!-- Reset -->
+            <button onclick="resetFilters()" class="text-xs px-3 py-2 border border-slate-200 rounded-lg text-slate-500 hover:text-slate-700 hover:border-slate-300 bg-white transition font-medium self-end">Limpar</button>
+        </div>
+    </div>
+
+    <!-- ── Sort bar ── -->
+    <div class="flex items-center justify-between mb-4 flex-wrap gap-3">
+        <p id="results-count" class="text-sm text-slate-500"></p>
+        <div class="flex gap-1.5 flex-wrap">
+            <span class="text-xs text-slate-400 font-semibold self-center mr-1">Ordenar:</span>
+            <button class="sort-btn active" id="s-score"       onclick="setSort('score')">Score</button>
+            <button class="sort-btn"        id="s-likes"        onclick="setSort('likes')">Likes</button>
+            <button class="sort-btn"        id="s-comentarios"  onclick="setSort('comentarios')">Comentários</button>
+            <button class="sort-btn"        id="s-partilhas"    onclick="setSort('partilhas')">Partilhas</button>
+            <button class="sort-btn"        id="s-data"         onclick="setSort('data')">Data</button>
+            <button class="sort-btn"        id="s-objetivo"     onclick="setSort('objetivo')">% Objetivo</button>
+        </div>
+    </div>
+
+    <!-- ── Cards grid ── -->
+    <div id="posts-grid" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+        <!-- Skeleton loaders -->
+        <div class="skeleton h-48 rounded-xl"></div>
+        <div class="skeleton h-48 rounded-xl"></div>
+        <div class="skeleton h-48 rounded-xl"></div>
+        <div class="skeleton h-48 rounded-xl"></div>
+        <div class="skeleton h-48 rounded-xl"></div>
+        <div class="skeleton h-48 rounded-xl"></div>
+    </div>
+
+    <!-- ── Empty state ── -->
+    <div id="empty-state" class="hidden text-center py-20">
+        <p class="text-4xl mb-3">🔍</p>
+        <p class="text-slate-500 text-sm font-medium">Nenhum post corresponde aos filtros.</p>
+        <button onclick="resetFilters()" class="mt-3 text-xs text-blue-600 hover:text-blue-700 font-semibold">Limpar filtros</button>
+    </div>
+</main>
+
+<!-- ══ POST OVERLAY ══ -->
+<div id="post-overlay" class="overlay-backdrop hidden" onclick="closeOverlay(event)">
+    <div class="overlay-panel">
+        <!-- Header -->
+        <div class="flex items-start justify-between mb-5">
+            <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-2 mb-1.5">
+                    <div id="ov-camp-dot" class="w-2.5 h-2.5 rounded-full flex-shrink-0"></div>
+                    <span id="ov-camp-name" class="text-xs font-semibold text-slate-500"></span>
+                    <span id="ov-tipo-badge" class="tipo-badge"></span>
+                    <span id="ov-rede-badge" class="text-xs"></span>
+                </div>
+                <h3 id="ov-nome" class="text-lg font-bold text-slate-900 leading-snug"></h3>
+                <p id="ov-data" class="text-xs text-slate-400 mt-0.5"></p>
+            </div>
+            <button onclick="closeOverlay()" class="ml-3 flex-shrink-0 w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center transition text-slate-500 text-lg leading-none">×</button>
+        </div>
+
+        <!-- Drive link -->
+        <div id="ov-drive-wrap" class="hidden mb-4">
+            <a id="ov-drive-link" href="#" target="_blank" rel="noopener"
+               class="flex items-center gap-2 text-sm text-blue-600 hover:text-blue-700 font-medium px-3 py-2 bg-blue-50 rounded-lg border border-blue-100 transition hover:bg-blue-100">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                Abrir no Google Drive
+            </a>
+        </div>
+
+        <!-- Score + KPI strip -->
+        <div class="kpi-strip mb-5">
+            <div class="kpi-box">
+                <p class="text-xs text-slate-400 font-semibold uppercase tracking-wide mb-1">Score</p>
+                <p id="ov-score" class="text-xl font-bold"></p>
+            </div>
+            <div class="kpi-box">
+                <p class="text-xs text-slate-400 font-semibold uppercase tracking-wide mb-1">Likes</p>
+                <p id="ov-likes" class="text-xl font-bold text-slate-900"></p>
+            </div>
+            <div class="kpi-box">
+                <p class="text-xs text-slate-400 font-semibold uppercase tracking-wide mb-1">Coment.</p>
+                <p id="ov-comentarios" class="text-xl font-bold text-slate-900"></p>
+            </div>
+            <div class="kpi-box">
+                <p class="text-xs text-slate-400 font-semibold uppercase tracking-wide mb-1">Partilhas</p>
+                <p id="ov-partilhas" class="text-xl font-bold text-slate-900"></p>
+            </div>
+        </div>
+
+        <!-- Objetivo progress bars -->
+        <div id="ov-obj-section" class="hidden mb-5">
+            <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">% Objetivos alcançados</p>
+            <div class="space-y-3" id="ov-obj-bars"></div>
+        </div>
+
+        <!-- Descrição -->
+        <div id="ov-desc-wrap" class="hidden mb-5">
+            <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Descrição</p>
+            <p id="ov-descricao" class="text-sm text-slate-600 leading-relaxed"></p>
+        </div>
+
+        <!-- Edit section (admin only) -->
+        <div id="ov-edit-section" class="hidden border-t border-slate-100 pt-4 mt-2">
+            <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Editar métricas reais</p>
+            <div class="grid grid-cols-3 gap-3 mb-3">
+                <div class="text-center">
+                    <label class="text-xs text-slate-400 block mb-1">❤️ Likes</label>
+                    <input type="number" id="edit-likes" class="edit-input" min="0">
+                </div>
+                <div class="text-center">
+                    <label class="text-xs text-slate-400 block mb-1">💬 Coment.</label>
+                    <input type="number" id="edit-comentarios" class="edit-input" min="0">
+                </div>
+                <div class="text-center">
+                    <label class="text-xs text-slate-400 block mb-1">🔁 Partilhas</label>
+                    <input type="number" id="edit-partilhas" class="edit-input" min="0">
+                </div>
+            </div>
+            <div class="flex gap-2">
+                <button id="btn-save" onclick="saveMetrics()"
+                    class="flex-1 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold py-2 rounded-lg transition">
+                    Guardar
+                </button>
+                <button onclick="closeOverlay()"
+                    class="px-4 py-2 border border-slate-200 rounded-lg text-sm text-slate-500 hover:bg-slate-50 transition font-medium">
+                    Fechar
+                </button>
+            </div>
+            <p id="ov-save-msg" class="hidden text-xs text-center mt-2"></p>
+        </div>
+
+        <!-- Non-admin close -->
+        <div id="ov-viewer-close" class="hidden border-t border-slate-100 pt-4 mt-2">
+            <button onclick="closeOverlay()"
+                class="w-full py-2 border border-slate-200 rounded-lg text-sm text-slate-500 hover:bg-slate-50 transition font-medium">
+                Fechar
+            </button>
+        </div>
+    </div>
+</div>
+
+<script src="supabase.js"></script>
+<script src="auth.js"></script>
+<script src="nav.js"></script>
+<script>
+    // ── State ───────────────────────────────────────────────────
+    let allPosts     = [];   // raw from DB (with campanhas joined)
+    let filtered     = [];   // after filters
+    let campanhas    = [];   // for filter dropdown
+    let currentSort  = 'score';
+    let currentPeriodo = 'all';
+    let currentPostId  = null;
+    let isAdmin        = false;
+
+    const TIPO_COLORS = {
+        Post:      { bg:'#eff6ff', color:'#2563eb' },
+        Reel:      { bg:'#fdf4ff', color:'#9333ea' },
+        Story:     { bg:'#fff7ed', color:'#ea580c' },
+        Carrossel: { bg:'#f0fdf4', color:'#16a34a' },
+        Live:      { bg:'#fef2f2', color:'#dc2626' },
+    };
+
+    // Score = likes×2 + comentários×3.5 + partilhas×4.5
+    function calcScore(p) {
+        return (p.likes_real||0)*2 + (p.comentarios_real||0)*3.5 + (p.partilhas_real||0)*4.5;
+    }
+
+    function pctObj(p) {
+        const oT = (p.likes_objetivo||0)+(p.comentarios_objetivo||0)+(p.partilhas_objetivo||0);
+        const rT = (p.likes_real||0)+(p.comentarios_real||0)+(p.partilhas_real||0);
+        return oT > 0 ? Math.round((rT/oT)*100) : null;
+    }
+
+    // ── Init ────────────────────────────────────────────────────
+    async function init() {
+        const profile = await getUserProfile();
+        if (!profile) return;
+        isAdmin = profile.role === 'admin';
+        buildSidebar('posts.html', profile.role);
+        await loadData();
+    }
+
+    async function loadData() {
+        const [{ data: posts, error }, { data: camps }] = await Promise.all([
+            supabaseClient
+                .from('posts')
+                .select('*, campanhas(id, nome, cor)')
+                .order('data_publicacao', { ascending: false })
+                .limit(500),
+            supabaseClient
+                .from('campanhas')
+                .select('id, nome, cor')
+                .order('nome')
+                .limit(100)
+        ]);
+
+        if (error) {
+            document.getElementById('posts-grid').innerHTML =
+                `<div class="col-span-3 text-center py-16 text-slate-400 text-sm">Erro ao carregar posts: ${error.message}</div>`;
+            return;
+        }
+
+        allPosts  = posts  || [];
+        campanhas = camps  || [];
+
+        // Populate campanha dropdown
+        const sel = document.getElementById('f-campanha');
+        campanhas.forEach(c => {
+            const opt = document.createElement('option');
+            opt.value = c.id;
+            opt.textContent = c.nome;
+            sel.appendChild(opt);
+        });
+
+        applyFilters();
+        updateHeaderKPIs(allPosts);
+    }
+
+    // ── Filters ─────────────────────────────────────────────────
+    function applyFilters() {
+        const campId  = document.getElementById('f-campanha').value;
+        const rede    = document.getElementById('f-rede').value;
+        const tipo    = document.getElementById('f-tipo').value;
+        const perf    = document.getElementById('f-perf').value;
+        const search  = document.getElementById('f-search').value.toLowerCase().trim();
+
+        const today = new Date(); today.setHours(23,59,59,999);
+        let cutoff  = null;
+        if (currentPeriodo === 'week')  { cutoff = new Date(today); cutoff.setDate(today.getDate()-7); }
+        if (currentPeriodo === 'month') { cutoff = new Date(today); cutoff.setDate(today.getDate()-30); }
+
+        filtered = allPosts.filter(p => {
+            if (campId && String(p.campanha_id) !== String(campId)) return false;
+            if (rede   && p.rede  !== rede)  return false;
+            if (tipo   && p.tipo  !== tipo)  return false;
+            if (search && !p.nome.toLowerCase().includes(search)) return false;
+            if (cutoff && p.data_publicacao) {
+                const d = new Date(p.data_publicacao + 'T12:00:00');
+                if (d < cutoff) return false;
+            }
+            if (perf) {
+                const pct = pctObj(p);
+                if (perf === 'above'  && (pct === null || pct < 100))  return false;
+                if (perf === 'below'  && (pct === null || pct >= 100)) return false;
+                if (perf === 'no-obj' && pct !== null)                 return false;
+            }
+            return true;
+        });
+
+        sortPosts();
+        renderGrid();
+        updateHeaderKPIs(filtered);
+    }
+
+    function setPeriodo(p) {
+        currentPeriodo = p;
+        ['all','month','week'].forEach(k => {
+            document.getElementById('fp-'+k).classList.toggle('active', k === p);
+        });
+        applyFilters();
+    }
+
+    function setSort(s) {
+        currentSort = s;
+        ['score','likes','comentarios','partilhas','data','objetivo'].forEach(k => {
+            document.getElementById('s-'+k).classList.toggle('active', k === s);
+        });
+        sortPosts();
+        renderGrid();
+    }
+
+    function sortPosts() {
+        filtered.sort((a, b) => {
+            switch (currentSort) {
+                case 'score':       return calcScore(b) - calcScore(a);
+                case 'likes':       return (b.likes_real||0) - (a.likes_real||0);
+                case 'comentarios': return (b.comentarios_real||0) - (a.comentarios_real||0);
+                case 'partilhas':   return (b.partilhas_real||0) - (a.partilhas_real||0);
+                case 'data':        return (b.data_publicacao||'').localeCompare(a.data_publicacao||'');
+                case 'objetivo': {
+                    const pa = pctObj(a) ?? -1, pb = pctObj(b) ?? -1;
+                    return pb - pa;
+                }
+            }
+        });
+    }
+
+    function resetFilters() {
+        document.getElementById('f-campanha').value = '';
+        document.getElementById('f-rede').value     = '';
+        document.getElementById('f-tipo').value     = '';
+        document.getElementById('f-perf').value     = '';
+        document.getElementById('f-search').value   = '';
+        setPeriodo('all');
+        applyFilters();
+    }
+
+    // ── Render grid ─────────────────────────────────────────────
+    function renderGrid() {
+        const grid  = document.getElementById('posts-grid');
+        const empty = document.getElementById('empty-state');
+
+        document.getElementById('results-count').textContent =
+            filtered.length === allPosts.length
+                ? `${allPosts.length} posts`
+                : `${filtered.length} de ${allPosts.length} posts`;
+
+        if (!filtered.length) {
+            grid.innerHTML = '';
+            empty.classList.remove('hidden');
+            return;
+        }
+        empty.classList.add('hidden');
+
+        const maxScore = Math.max(...filtered.map(calcScore), 1);
+        const medals   = ['🥇','🥈','🥉'];
+
+        grid.innerHTML = filtered.map((p, i) => {
+            const score   = calcScore(p);
+            const cor     = p.campanhas?.cor || '#2563eb';
+            const tipo    = p.tipo || 'Post';
+            const tc      = TIPO_COLORS[tipo] || TIPO_COLORS['Post'];
+            const pct     = pctObj(p);
+            const pctPct  = Math.min(pct ?? 0, 100);
+            const isPublished = p.data_publicacao && p.data_publicacao <= new Date().toISOString().split('T')[0];
+
+            const dataStr = p.data_publicacao
+                ? new Date(p.data_publicacao+'T12:00:00').toLocaleDateString('pt-PT',{day:'numeric',month:'short',year:'numeric'})
+                : null;
+
+            const rankEl = i < 3
+                ? `<span class="text-lg">${medals[i]}</span>`
+                : `<span class="rank-num" style="background:#f1f5f9;color:#94a3b8">#${i+1}</span>`;
+
+            // Performance badge
+            let perfBadge = '';
+            if (pct !== null && isPublished) {
+                if (pct >= 100)      perfBadge = `<span class="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">✓ ${pct}%</span>`;
+                else if (pct >= 50)  perfBadge = `<span class="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">${pct}%</span>`;
+                else                 perfBadge = `<span class="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-red-50 text-red-600 border border-red-200">⚠ ${pct}%</span>`;
+            }
+
+            return `<div class="post-card p-5" onclick="openOverlay(${p.id})">
+                <!-- Top row -->
+                <div class="flex items-start justify-between gap-2 mb-3">
+                    <div class="flex items-center gap-2">
+                        ${rankEl}
+                        <div class="flex flex-col gap-1">
+                            <span class="tipo-badge" style="background:${tc.bg};color:${tc.color}">${tipo}</span>
+                            ${p.rede ? `<span class="text-[10px] text-slate-400 font-medium">${p.rede === 'Instagram' ? '📸' : '📘'} ${p.rede}</span>` : ''}
+                        </div>
+                    </div>
+                    <div class="text-right flex-shrink-0">
+                        <p class="text-lg font-bold" style="color:${cor}">${score.toFixed(0)}</p>
+                        <p class="text-[10px] text-slate-400 font-semibold uppercase">score</p>
+                    </div>
+                </div>
+
+                <!-- Name -->
+                <p class="text-sm font-semibold text-slate-900 mb-1 line-clamp-2 leading-snug">${p.nome}</p>
+
+                <!-- Campaign + date -->
+                <div class="flex items-center gap-1.5 mb-3">
+                    <div class="w-1.5 h-1.5 rounded-full flex-shrink-0" style="background:${cor}"></div>
+                    <p class="text-xs text-slate-400 truncate">${p.campanhas?.nome || '—'}${dataStr ? ' · ' + dataStr : ''}</p>
+                </div>
+
+                <!-- Score bar -->
+                <div class="perf-bar-bg mb-3">
+                    <div class="perf-bar" style="width:${Math.round((score/maxScore)*100)}%;background:${cor}"></div>
+                </div>
+
+                <!-- Metrics row -->
+                <div class="flex items-center justify-between">
+                    <div class="flex gap-2">
+                        <span class="metric-pill">❤️ ${(p.likes_real||0).toLocaleString('pt-PT')}</span>
+                        <span class="metric-pill">💬 ${(p.comentarios_real||0).toLocaleString('pt-PT')}</span>
+                        <span class="metric-pill">🔁 ${(p.partilhas_real||0).toLocaleString('pt-PT')}</span>
+                    </div>
+                    ${perfBadge}
+                </div>
+            </div>`;
+        }).join('');
+    }
+
+    // ── Header KPIs ─────────────────────────────────────────────
+    function updateHeaderKPIs(posts) {
+        const total  = posts.length;
+        const engArr = posts.map(p => (p.likes_real||0)+(p.comentarios_real||0)+(p.partilhas_real||0));
+        const avgEng = total > 0 ? Math.round(engArr.reduce((a,b)=>a+b,0)/total) : 0;
+
+        const withObj = posts.filter(p => {
+            const oT = (p.likes_objetivo||0)+(p.comentarios_objetivo||0)+(p.partilhas_objetivo||0);
+            return oT > 0;
+        });
+        const aboveObj = withObj.filter(p => {
+            const oT = (p.likes_objetivo||0)+(p.comentarios_objetivo||0)+(p.partilhas_objetivo||0);
+            const rT = (p.likes_real||0)+(p.comentarios_real||0)+(p.partilhas_real||0);
+            return rT >= oT;
+        });
+        const objRate = withObj.length > 0 ? Math.round((aboveObj.length/withObj.length)*100) : null;
+
+        document.getElementById('kpi-total').textContent    = total;
+        document.getElementById('kpi-avg-eng').textContent  = avgEng.toLocaleString('pt-PT');
+        document.getElementById('kpi-obj-rate').textContent = objRate !== null ? objRate + '%' : '—';
+    }
+
+    // ── Overlay ─────────────────────────────────────────────────
+    function openOverlay(postId) {
+        const p = allPosts.find(x => x.id === postId);
+        if (!p) return;
+        currentPostId = postId;
+
+        const cor  = p.campanhas?.cor || '#2563eb';
+        const tipo = p.tipo || 'Post';
+        const tc   = TIPO_COLORS[tipo] || TIPO_COLORS['Post'];
+        const score = calcScore(p);
+
+        // Header
+        document.getElementById('ov-camp-dot').style.background = cor;
+        document.getElementById('ov-camp-name').textContent     = p.campanhas?.nome || '';
+        document.getElementById('ov-nome').textContent          = p.nome;
+
+        const tipoBadge = document.getElementById('ov-tipo-badge');
+        tipoBadge.textContent = tipo;
+        tipoBadge.style.cssText = `background:${tc.bg};color:${tc.color}`;
+
+        document.getElementById('ov-rede-badge').textContent =
+            p.rede === 'Instagram' ? '📸 Instagram' : p.rede === 'Facebook' ? '📘 Facebook' : '';
+
+        const dataStr = p.data_publicacao
+            ? new Date(p.data_publicacao+'T12:00:00').toLocaleDateString('pt-PT',{day:'numeric',month:'long',year:'numeric'})
+            : '';
+        document.getElementById('ov-data').textContent = dataStr;
+
+        // Drive
+        const driveWrap = document.getElementById('ov-drive-wrap');
+        if (p.drive_link) {
+            driveWrap.classList.remove('hidden');
+            document.getElementById('ov-drive-link').href = p.drive_link;
+        } else { driveWrap.classList.add('hidden'); }
+
+        // KPIs
+        document.getElementById('ov-score').textContent      = score.toFixed(1);
+        document.getElementById('ov-score').style.color      = cor;
+        document.getElementById('ov-likes').textContent      = (p.likes_real||0).toLocaleString('pt-PT');
+        document.getElementById('ov-comentarios').textContent = (p.comentarios_real||0).toLocaleString('pt-PT');
+        document.getElementById('ov-partilhas').textContent  = (p.partilhas_real||0).toLocaleString('pt-PT');
+
+        // Objetivo bars
+        const oL = p.likes_objetivo||0, oC = p.comentarios_objetivo||0, oP = p.partilhas_objetivo||0;
+        const oT = oL + oC + oP;
+        const objSection = document.getElementById('ov-obj-section');
+        if (oT > 0) {
+            objSection.classList.remove('hidden');
+            const metrics = [
+                { label: '❤️ Likes',       real: p.likes_real||0,       obj: oL },
+                { label: '💬 Comentários', real: p.comentarios_real||0,  obj: oC },
+                { label: '🔁 Partilhas',   real: p.partilhas_real||0,    obj: oP },
+            ];
+            document.getElementById('ov-obj-bars').innerHTML = metrics.filter(m => m.obj > 0).map(m => {
+                const pct = Math.min(Math.round((m.real/m.obj)*100), 100);
+                const barColor = pct >= 100 ? '#16a34a' : pct >= 50 ? '#d97706' : '#dc2626';
+                return `<div>
+                    <div class="flex justify-between text-xs mb-1">
+                        <span class="text-slate-500">${m.label}</span>
+                        <span class="font-bold text-slate-800">${m.real.toLocaleString('pt-PT')} <span class="font-normal text-slate-400">/ ${m.obj.toLocaleString('pt-PT')}</span> <span style="color:${barColor}">${pct}%</span></span>
+                    </div>
+                    <div class="perf-bar-bg"><div class="perf-bar" style="width:${pct}%;background:${barColor}"></div></div>
+                </div>`;
+            }).join('');
+        } else { objSection.classList.add('hidden'); }
+
+        // Descrição
+        const descWrap = document.getElementById('ov-desc-wrap');
+        if (p.descricao) {
+            descWrap.classList.remove('hidden');
+            document.getElementById('ov-descricao').textContent = p.descricao;
+        } else { descWrap.classList.add('hidden'); }
+
+        // Edit / close section
+        if (isAdmin) {
+            document.getElementById('ov-edit-section').classList.remove('hidden');
+            document.getElementById('ov-viewer-close').classList.add('hidden');
+            document.getElementById('edit-likes').value       = p.likes_real || 0;
+            document.getElementById('edit-comentarios').value = p.comentarios_real || 0;
+            document.getElementById('edit-partilhas').value   = p.partilhas_real || 0;
+            document.getElementById('ov-save-msg').classList.add('hidden');
+        } else {
+            document.getElementById('ov-edit-section').classList.add('hidden');
+            document.getElementById('ov-viewer-close').classList.remove('hidden');
+        }
+
+        document.getElementById('post-overlay').classList.remove('hidden');
+        document.body.style.overflow = 'hidden';
+    }
+
+    function closeOverlay(event) {
+        if (event && event.target !== document.getElementById('post-overlay')) return;
+        document.getElementById('post-overlay').classList.add('hidden');
+        document.body.style.overflow = '';
+        currentPostId = null;
+    }
+
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') closeOverlay(); });
+
+    // ── Save metrics ────────────────────────────────────────────
+    async function saveMetrics() {
+        if (!currentPostId) return;
+        const btn = document.getElementById('btn-save');
+        btn.textContent = 'A guardar...'; btn.disabled = true;
+
+        const likes       = Number(document.getElementById('edit-likes').value)       || 0;
+        const comentarios = Number(document.getElementById('edit-comentarios').value) || 0;
+        const partilhas   = Number(document.getElementById('edit-partilhas').value)   || 0;
+
+        const { error } = await supabaseClient
+            .from('posts')
+            .update({ likes_real: likes, comentarios_real: comentarios, partilhas_real: partilhas })
+            .eq('id', currentPostId);
+
+        btn.textContent = 'Guardar'; btn.disabled = false;
+
+        const msg = document.getElementById('ov-save-msg');
+        if (error) {
+            msg.textContent = 'Erro: ' + error.message;
+            msg.className = 'text-xs text-center mt-2 text-red-500';
+        } else {
+            // Update local state
+            const idx = allPosts.findIndex(p => p.id === currentPostId);
+            if (idx !== -1) {
+                allPosts[idx].likes_real       = likes;
+                allPosts[idx].comentarios_real = comentarios;
+                allPosts[idx].partilhas_real   = partilhas;
+            }
+            applyFilters();
+            updateHeaderKPIs(filtered);
+
+            // Re-open with fresh data
+            const p = allPosts.find(x => x.id === currentPostId);
+            document.getElementById('ov-score').textContent       = calcScore(p).toFixed(1);
+            document.getElementById('ov-likes').textContent       = likes.toLocaleString('pt-PT');
+            document.getElementById('ov-comentarios').textContent = comentarios.toLocaleString('pt-PT');
+            document.getElementById('ov-partilhas').textContent   = partilhas.toLocaleString('pt-PT');
+
+            msg.textContent = '✓ Métricas atualizadas';
+            msg.className = 'text-xs text-center mt-2 text-emerald-600';
+        }
+        msg.classList.remove('hidden');
+        setTimeout(() => msg.classList.add('hidden'), 3000);
+    }
+
+    init();
+</script>
+</body>
+</html>

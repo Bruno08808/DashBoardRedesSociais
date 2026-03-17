@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AdMetrics | Website</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family:'Inter',sans-serif; background:#f8fafc; color:#0f172a; }
+        .card { background:#fff; border:1px solid #e2e8f0; border-radius:12px; }
+        .field { background:#fff; border:1px solid #e2e8f0; color:#0f172a; border-radius:8px; padding:9px 12px; width:100%; font-family:'Inter',sans-serif; font-size:14px; }
+        .field:focus { outline:none; border-color:#2563eb; box-shadow:0 0 0 3px rgba(37,99,235,0.08); }
+        .field::placeholder { color:#94a3b8; }
+        .filter-btn { padding:5px 12px; border-radius:999px; font-size:12px; font-weight:600; cursor:pointer; border:1px solid #e2e8f0; background:#fff; color:#64748b; transition:all 0.15s; }
+        .filter-btn:hover { border-color:#cbd5e1; color:#334155; }
+        .filter-btn.active { background:#eff6ff; border-color:#2563eb; color:#2563eb; }
+    </style>
+</head>
+<body class="min-h-screen">
+<div id="sidebar-container"></div>
+<main class="ml-60 min-h-screen p-8">
+
+    <div class="flex items-center justify-between gap-4 mb-8">
+        <div>
+            <h2 class="text-2xl font-bold text-slate-900">Website</h2>
+            <p class="text-slate-500 text-sm mt-0.5">Métricas de vendas e tráfego</p>
+        </div>
+        <div class="flex items-center gap-2">
+            <div class="flex gap-1">
+                <button class="filter-btn active" id="fw-3"   onclick="setFilter(3)">3m</button>
+                <button class="filter-btn"        id="fw-6"   onclick="setFilter(6)">6m</button>
+                <button class="filter-btn"        id="fw-12"  onclick="setFilter(12)">1a</button>
+                <button class="filter-btn"        id="fw-all" onclick="setFilter(0)">Tudo</button>
+            </div>
+            <button onclick="exportCSV()" class="text-xs px-3 py-2 bg-white border border-slate-200 hover:border-slate-300 text-slate-600 rounded-lg transition shadow-sm font-medium">↓ CSV</button>
+        </div>
+    </div>
+
+    <!-- KPIs Row 1 -->
+    <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-4">
+        <div class="card p-5 shadow-sm">
+            <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Visitas</p>
+            <p id="kw-visitas" class="text-2xl font-bold text-slate-900 mt-2">—</p>
+            <div id="d-visitas" class="mt-1"></div>
+        </div>
+        <div class="card p-5 shadow-sm">
+            <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Vendas</p>
+            <p id="kw-vendas" class="text-2xl font-bold text-slate-900 mt-2">—</p>
+            <div id="d-vendas" class="mt-1"></div>
+        </div>
+        <div class="card p-5 shadow-sm">
+            <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Faturação</p>
+            <p id="kw-valor" class="text-2xl font-bold text-blue-600 mt-2">—</p>
+            <div id="d-valor" class="mt-1"></div>
+        </div>
+        <div class="card p-5 shadow-sm">
+            <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Ticket Médio</p>
+            <p id="kw-ticket" class="text-2xl font-bold text-slate-900 mt-2">—</p>
+            <div id="d-ticket" class="mt-1"></div>
+        </div>
+        <div class="card p-5 shadow-sm border-blue-200" style="border-top:3px solid #2563eb">
+            <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Taxa Conv.</p>
+            <p id="kw-conv" class="text-2xl font-bold text-blue-600 mt-2">—</p>
+            <p class="text-xs text-slate-400 mt-1">vendas / visitas</p>
+        </div>
+    </div>
+
+    <!-- KPIs Row 2 -->
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+        <div class="card p-5 shadow-sm">
+            <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Compradores</p>
+            <p id="kw-compradores" class="text-2xl font-bold text-slate-900 mt-2">—</p>
+            <div id="d-compradores" class="mt-1"></div>
+        </div>
+        <div class="card p-5 shadow-sm">
+            <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Lojas</p>
+            <p id="kw-lojas" class="text-2xl font-bold text-slate-900 mt-2">—</p>
+            <div id="d-lojas" class="mt-1"></div>
+        </div>
+        <div class="card p-5 shadow-sm">
+            <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Produtos</p>
+            <p id="kw-produtos" class="text-2xl font-bold text-slate-900 mt-2">—</p>
+            <div id="d-produtos" class="mt-1"></div>
+        </div>
+        <div class="card p-5 shadow-sm">
+            <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Prod. Vendidos</p>
+            <p id="kw-prod-vendidos" class="text-2xl font-bold text-slate-900 mt-2">—</p>
+            <div id="d-prod-vendidos" class="mt-1"></div>
+        </div>
+    </div>
+
+    <!-- Charts -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-6">
+        <div class="card p-6 shadow-sm">
+            <h3 class="text-sm font-semibold text-slate-700 mb-4">Visitas vs Vendas</h3>
+            <div id="vv-empty" class="hidden text-center py-10 text-slate-400"><p class="text-3xl mb-2">📊</p><p class="text-sm">Sem dados para este período.</p></div>
+            <canvas id="vvChart" height="160"></canvas>
+        </div>
+        <div class="card p-6 shadow-sm">
+            <h3 class="text-sm font-semibold text-slate-700 mb-4">Faturação Mensal</h3>
+            <div id="fat-empty" class="hidden text-center py-10 text-slate-400"><p class="text-3xl mb-2">💶</p><p class="text-sm">Sem dados para este período.</p></div>
+            <canvas id="fatChart" height="160"></canvas>
+        </div>
+    </div>
+
+    <!-- Top products -->
+    <div class="card p-6 shadow-sm mb-6">
+        <h3 class="text-sm font-semibold text-slate-700 mb-4">Produtos Mais Vendidos</h3>
+        <div id="top-produtos" class="space-y-3"><p class="text-slate-400 text-sm">A carregar...</p></div>
+    </div>
+
+    <!-- Admin form -->
+    <div id="admin-form" class="hidden">
+        <div class="flex items-center gap-4 mb-5">
+            <div class="flex-1 h-px bg-slate-200"></div>
+            <span class="text-xs text-slate-400 font-semibold uppercase tracking-wider">Registar Métricas</span>
+            <div class="flex-1 h-px bg-slate-200"></div>
+        </div>
+        <div class="card p-6 shadow-sm border-t-2 border-blue-600 max-w-2xl mb-6">
+            <h4 class="text-sm font-bold mb-5 text-slate-900">Novo Registo Mensal</h4>
+            <div class="grid grid-cols-2 gap-4 mb-4">
+                <div><label class="text-xs font-semibold text-slate-500 uppercase block mb-1">Data</label><input type="date" id="wm_data" class="field"></div>
+                <div><label class="text-xs font-semibold text-slate-500 uppercase block mb-1">Visitas</label><input type="number" id="wm_visitas" class="field" placeholder="0" min="0"></div>
+                <div><label class="text-xs font-semibold text-slate-500 uppercase block mb-1">Vendas</label><input type="number" id="wm_vendas" class="field" placeholder="0" min="0"></div>
+                <div><label class="text-xs font-semibold text-slate-500 uppercase block mb-1">Valor Total (€)</label><input type="number" id="wm_valor" class="field" placeholder="0.00" min="0" step="0.01"></div>
+                <div><label class="text-xs font-semibold text-slate-500 uppercase block mb-1">Ticket Médio (€)</label><input type="number" id="wm_ticket" class="field" placeholder="0.00" min="0" step="0.01"></div>
+                <div><label class="text-xs font-semibold text-slate-500 uppercase block mb-1">Compradores</label><input type="number" id="wm_compradores" class="field" placeholder="0" min="0"></div>
+                <div><label class="text-xs font-semibold text-slate-500 uppercase block mb-1">Lojas</label><input type="number" id="wm_lojas" class="field" placeholder="0" min="0"></div>
+                <div><label class="text-xs font-semibold text-slate-500 uppercase block mb-1">Produtos</label><input type="number" id="wm_produtos" class="field" placeholder="0" min="0"></div>
+                <div><label class="text-xs font-semibold text-slate-500 uppercase block mb-1">Prod. Vendidos</label><input type="number" id="wm_prod_vendidos" class="field" placeholder="0" min="0"></div>
+            </div>
+            <p class="text-xs font-semibold text-slate-400 uppercase mb-3 border-t border-slate-100 pt-3">Produtos Vendidos <span class="font-normal text-slate-300">(opcional)</span></p>
+            <div id="produtos-inputs" class="space-y-2 mb-3"></div>
+            <button onclick="adicionarProduto()" class="text-xs text-blue-600 hover:text-blue-700 font-semibold mb-4 block">+ Adicionar produto</button>
+            <button onclick="guardarWebsite()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 rounded-lg transition text-sm">Guardar Registo</button>
+            <p id="wm-msg" class="text-sm text-center mt-2 hidden"></p>
+        </div>
+    </div>
+</main>
+
+<script src="supabase.js"></script>
+<script src="auth.js"></script>
+<script src="nav.js"></script>
+<script>
+    Chart.defaults.color = "#94a3b8"; Chart.defaults.borderColor = "#f1f5f9";
+    const scaleOpts = { ticks:{color:"#94a3b8"}, grid:{color:"#f1f5f9"} };
+    let vvChart, fatChart, currentFilter=3, cachedRows=[];
+
+    function renderDelta(curr, prev) {
+        if (prev == null || prev === 0) return '<span class="text-xs text-slate-400">—</span>';
+        const d=curr-prev, pct=Math.round((d/prev)*100);
+        const cls=d>=0?'text-emerald-600':'text-red-500', sign=d>=0?'+':'';
+        return `<span class="text-xs font-medium ${cls}">${sign}${d.toLocaleString('pt-PT')} vs ant. (${sign}${pct}%)</span>`;
+    }
+
+    function exportToCSV(data, filename) {
+        if (!data||!data.length) { alert('Sem dados.'); return; }
+        const keys=Object.keys(data[0]);
+        const csv=[keys.join(','),...data.map(r=>keys.map(k=>`"${String(r[k]??'').replace(/"/g,'""')}"`).join(','))].join('\n');
+        Object.assign(document.createElement('a'),{href:'data:text/csv;charset=utf-8,'+encodeURIComponent('\uFEFF'+csv),download:filename}).click();
+    }
+
+    function exportCSV() {
+        exportToCSV(cachedRows.map(r=>({data_registo:r.data_registo,visitas:r.visitas||0,vendas:r.vendas||0,valor_total:r.valor_total||0,ticket_medio:r.ticket_medio||0,compradores:r.compradores||0,lojas:r.lojas||0,produtos:r.produtos||0,produtos_vendidos:r.produtos_vendidos||0,taxa_conversao:r.visitas&&r.vendas?(((r.vendas/r.visitas)*100).toFixed(2)+'%'):''})),'website_metricas.csv');
+    }
+
+    async function init() {
+        const profile=await getUserProfile(); if(!profile) return;
+        buildSidebar("website.html", profile.role);
+        if(profile.role==="admin") document.getElementById("admin-form").classList.remove("hidden");
+        await loadData();
+    }
+
+    function setFilter(m) {
+        currentFilter=m;
+        ["3","6","12","all"].forEach(k=>{document.getElementById("fw-"+k).className="filter-btn"+(String(m)===k||(m===0&&k==="all")?" active":"");});
+        loadData();
+    }
+
+    async function loadData() {
+        let q=supabaseClient.from("website_metricas").select("*,website_produtos(*)").order("data_registo",{ascending:true});
+        if(currentFilter>0) { const d=new Date(); d.setMonth(d.getMonth()-currentFilter); q=q.gte("data_registo",d.toISOString().split('T')[0]); }
+        const {data:rows}=await q;
+        cachedRows = rows||[];
+
+        if (!cachedRows.length) {
+            ["kw-visitas","kw-vendas","kw-valor","kw-ticket","kw-conv","kw-compradores","kw-lojas","kw-produtos","kw-prod-vendidos"].forEach(id=>{ const el=document.getElementById(id); if(el) el.textContent="—"; });
+            ["d-visitas","d-vendas","d-valor","d-ticket","d-compradores","d-lojas","d-produtos","d-prod-vendidos"].forEach(id=>{ const el=document.getElementById(id); if(el) el.innerHTML=''; });
+            document.getElementById("top-produtos").innerHTML='<div class="text-center py-8 text-slate-400"><p class="text-3xl mb-2">📦</p><p class="text-sm">Sem dados no período.</p></div>';
+            ["vv-empty","fat-empty"].forEach(id=>document.getElementById(id).classList.remove("hidden"));
+            ["vvChart","fatChart"].forEach(id=>document.getElementById(id).classList.add("hidden"));
+            return;
+        }
+
+        const last=cachedRows[cachedRows.length-1];
+        const prev=cachedRows.length>1?cachedRows[cachedRows.length-2]:null;
+
+        const fmt=(v,pre="")=>v!=null?`${pre}${Number(v).toLocaleString("pt-PT",{minimumFractionDigits:pre?2:0,maximumFractionDigits:pre?2:0})}`:"—";
+
+        // KPIs
+        document.getElementById("kw-visitas").textContent       = fmt(last.visitas);
+        document.getElementById("kw-vendas").textContent        = fmt(last.vendas);
+        document.getElementById("kw-valor").textContent         = fmt(last.valor_total,"€");
+        document.getElementById("kw-ticket").textContent        = fmt(last.ticket_medio,"€");
+        document.getElementById("kw-compradores").textContent   = fmt(last.compradores);
+        document.getElementById("kw-lojas").textContent         = fmt(last.lojas);
+        document.getElementById("kw-produtos").textContent      = fmt(last.produtos);
+        document.getElementById("kw-prod-vendidos").textContent = fmt(last.produtos_vendidos);
+
+        // Conversion rate
+        const convRate = last.visitas && last.vendas ? ((last.vendas/last.visitas)*100).toFixed(2)+"%" : "—";
+        document.getElementById("kw-conv").textContent = convRate;
+
+        // Deltas vs previous record
+        if (prev) {
+            const setD=(id,curr,p)=>{const el=document.getElementById(id);if(el)el.innerHTML=renderDelta(curr,p);};
+            setD("d-visitas",     last.visitas,          prev.visitas);
+            setD("d-vendas",      last.vendas,           prev.vendas);
+            setD("d-valor",       last.valor_total,      prev.valor_total);
+            setD("d-ticket",      last.ticket_medio,     prev.ticket_medio);
+            setD("d-compradores", last.compradores,      prev.compradores);
+            setD("d-lojas",       last.lojas,            prev.lojas);
+            setD("d-produtos",    last.produtos,         prev.produtos);
+            setD("d-prod-vendidos",last.produtos_vendidos,prev.produtos_vendidos);
+        }
+
+        // Charts
+        const labels=cachedRows.map(r=>r.data_registo);
+        ["vv-empty","fat-empty"].forEach(id=>document.getElementById(id).classList.add("hidden"));
+        ["vvChart","fatChart"].forEach(id=>document.getElementById(id).classList.remove("hidden"));
+        if(vvChart) vvChart.destroy();
+        vvChart=new Chart(document.getElementById("vvChart"),{type:"bar",data:{labels,datasets:[
+            {label:"Visitas",data:cachedRows.map(r=>r.visitas||0),backgroundColor:"#dbeafe",borderRadius:4},
+            {label:"Vendas",data:cachedRows.map(r=>r.vendas||0),backgroundColor:"#2563eb",borderRadius:4}
+        ]},options:{responsive:true,plugins:{legend:{labels:{color:"#94a3b8"}}},scales:{x:scaleOpts,y:scaleOpts}}});
+        if(fatChart) fatChart.destroy();
+        fatChart=new Chart(document.getElementById("fatChart"),{type:"line",data:{labels,datasets:[{label:"Faturação (€)",data:cachedRows.map(r=>Number(r.valor_total)||0),borderColor:"#2563eb",backgroundColor:"rgba(37,99,235,0.06)",fill:true,tension:0.35,pointRadius:4,pointBackgroundColor:"#2563eb"}]},options:{responsive:true,plugins:{legend:{labels:{color:"#94a3b8"}}},scales:{x:scaleOpts,y:{...scaleOpts,beginAtZero:false}}}});
+
+        // Top products
+        const prodMap={};
+        cachedRows.forEach(r=>(r.website_produtos||[]).forEach(p=>{if(!prodMap[p.nome_produto])prodMap[p.nome_produto]={unidades:0,valor:0};prodMap[p.nome_produto].unidades+=p.unidades_vendidas||0;prodMap[p.nome_produto].valor+=Number(p.valor_produto)||0;}));
+        const sorted=Object.entries(prodMap).sort((a,b)=>b[1].unidades-a[1].unidades).slice(0,8);
+        const wrap=document.getElementById("top-produtos");
+        if(!sorted.length){wrap.innerHTML='<div class="text-center py-8 text-slate-400"><p class="text-3xl mb-2">📦</p><p class="text-sm">Sem produtos registados no período.</p></div>';return;}
+        const max=sorted[0][1].unidades;
+        wrap.innerHTML=sorted.map(([nome,d],i)=>{
+            const pct=Math.round((d.unidades/max)*100);
+            const medal=i===0?"🥇":i===1?"🥈":i===2?"🥉":`#${i+1}`;
+            return `<div class="flex items-center gap-3">
+                <span class="text-sm w-5 text-center flex-shrink-0">${medal}</span>
+                <div class="flex-1 min-w-0">
+                    <div class="flex justify-between mb-1"><span class="text-sm font-medium text-slate-800 truncate">${nome}</span><span class="text-sm font-bold text-blue-600 ml-2 flex-shrink-0">${d.unidades} un.</span></div>
+                    <div style="background:#f1f5f9;border-radius:999px;height:4px;overflow:hidden;"><div style="width:${pct}%;background:#2563eb;height:100%;border-radius:999px;"></div></div>
+                </div>
+            </div>`;
+        }).join("");
+    }
+
+    let prodCount=0;
+    function adicionarProduto() {
+        prodCount++;
+        const div=document.createElement("div"); div.className="flex gap-2 items-center"; div.id=`pr-${prodCount}`;
+        div.innerHTML=`<input type="text" class="field" placeholder="Nome do produto" id="pn-${prodCount}" style="flex:2"><input type="number" class="field" placeholder="Unid." min="0" id="pu-${prodCount}" style="flex:1"><input type="number" class="field" placeholder="€ valor" min="0" step="0.01" id="pv-${prodCount}" style="flex:1"><button onclick="document.getElementById('pr-${prodCount}').remove()" class="text-slate-400 hover:text-red-500 transition flex-shrink-0 text-sm">✕</button>`;
+        document.getElementById("produtos-inputs").appendChild(div);
+    }
+
+    async function guardarWebsite() {
+        const data=document.getElementById("wm_data").value;
+        if(!data){showMsg("wm-msg","Indica a data.",true);return;}
+        const payload={data_registo:data,visitas:Number(document.getElementById("wm_visitas").value)||null,vendas:Number(document.getElementById("wm_vendas").value)||null,valor_total:Number(document.getElementById("wm_valor").value)||null,ticket_medio:Number(document.getElementById("wm_ticket").value)||null,compradores:Number(document.getElementById("wm_compradores").value)||null,lojas:Number(document.getElementById("wm_lojas").value)||null,produtos:Number(document.getElementById("wm_produtos").value)||null,produtos_vendidos:Number(document.getElementById("wm_prod_vendidos").value)||null};
+        const {data:row,error}=await supabaseClient.from("website_metricas").insert([payload]).select().single();
+        if(error){showMsg("wm-msg","Erro: "+error.message,true);return;}
+        const prods=[];
+        for(let i=1;i<=prodCount;i++){const n=document.getElementById(`pn-${i}`),u=document.getElementById(`pu-${i}`),v=document.getElementById(`pv-${i}`);if(n&&n.value.trim())prods.push({website_metrica_id:row.id,nome_produto:n.value.trim(),unidades_vendidas:Number(u?.value)||0,valor_produto:Number(v?.value)||0});}
+        if(prods.length) await supabaseClient.from("website_produtos").insert(prods);
+        showMsg("wm-msg","Registo guardado!");
+        ["wm_data","wm_visitas","wm_vendas","wm_valor","wm_ticket","wm_compradores","wm_lojas","wm_produtos","wm_prod_vendidos"].forEach(id=>{const el=document.getElementById(id);if(el)el.value="";});
+        document.getElementById("produtos-inputs").innerHTML=""; prodCount=0;
+        await loadData();
+    }
+
+    function showMsg(id,text,isError=false) {
+        const el=document.getElementById(id);el.textContent=text;
+        el.className=`text-sm text-center mt-2 ${isError?"text-red-500":"text-blue-600"}`;
+        el.classList.remove("hidden");setTimeout(()=>el.classList.add("hidden"),4000);
+    }
+
+    init();
+</script>
+</body>
+</html>

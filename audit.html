@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AdMetrics | Histórico</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        /* Timeline spine */
+        .tl-spine { position:relative; }
+        .tl-spine::before {
+            content:''; position:absolute; left:19px; top:0; bottom:0;
+            width:2px; background:#e2e8f0; z-index:0;
+        }
+
+        /* Dot */
+        .ev-dot {
+            width:38px; height:38px; border-radius:50%; flex-shrink:0;
+            display:flex; align-items:center; justify-content:center;
+            font-size:16px; position:relative; z-index:1; border:2px solid #fff;
+            box-shadow:0 0 0 2px #e2e8f0;
+        }
+
+        /* Action colours */
+        .dot-insert  { background:#dcfce7; box-shadow:0 0 0 2px #86efac; }
+        .dot-update  { background:#dbeafe; box-shadow:0 0 0 2px #93c5fd; }
+        .dot-delete  { background:#fee2e2; box-shadow:0 0 0 2px #fca5a5; }
+        .dot-login   { background:#f3e8ff; box-shadow:0 0 0 2px #d8b4fe; }
+
+        /* Diff table */
+        .diff-table { width:100%; font-size:12px; border-collapse:collapse; }
+        .diff-table th { text-align:left; padding:4px 8px; color:#64748b; font-weight:600; font-size:11px; text-transform:uppercase; letter-spacing:.05em; }
+        .diff-table td { padding:4px 8px; border-top:1px solid #f1f5f9; vertical-align:top; }
+        .diff-old { color:#ef4444; text-decoration:line-through; background:#fff5f5; border-radius:3px; padding:1px 4px; }
+        .diff-new { color:#16a34a; background:#f0fdf4; border-radius:3px; padding:1px 4px; }
+
+        .pill-filter { padding:5px 12px; border-radius:999px; font-size:12px; font-weight:600;
+                       cursor:pointer; border:1px solid #e2e8f0; background:#fff; color:#64748b; transition:all 0.15s; }
+        .pill-filter:hover { border-color:#cbd5e1; color:#334155; }
+        .pill-filter.active { background:#eff6ff; border-color:#2563eb; color:#2563eb; }
+    </style>
+</head>
+<body class="min-h-screen">
+<div id="sidebar-container"></div>
+<main class="ml-60 min-h-screen p-8">
+
+    <!-- Header -->
+    <div class="flex items-start justify-between mb-6">
+        <div>
+            <h2 class="text-2xl font-bold text-slate-900">Histórico de Alterações</h2>
+            <p class="text-slate-500 text-sm mt-0.5">Registo de todas as ações realizadas na plataforma</p>
+        </div>
+        <button onclick="loadAudit()" class="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 hover:border-slate-300 text-slate-600 text-sm font-medium rounded-lg transition shadow-sm">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+            Atualizar
+        </button>
+    </div>
+
+    <!-- Filters -->
+    <div class="card p-4 mb-6 shadow-sm">
+        <div class="flex flex-wrap items-center gap-3">
+            <div class="flex gap-1 flex-wrap" id="action-filters">
+                <button class="pill-filter active" data-action="all"     onclick="setActionFilter('all')">Todos</button>
+                <button class="pill-filter"        data-action="INSERT"  onclick="setActionFilter('INSERT')">➕ Criações</button>
+                <button class="pill-filter"        data-action="UPDATE"  onclick="setActionFilter('UPDATE')">✏️ Edições</button>
+                <button class="pill-filter"        data-action="DELETE"  onclick="setActionFilter('DELETE')">🗑️ Eliminações</button>
+            </div>
+            <div class="flex gap-1 flex-wrap" id="table-filters">
+                <button class="pill-filter active" data-table="all"            onclick="setTableFilter('all')">Tudo</button>
+                <button class="pill-filter"        data-table="campanhas"      onclick="setTableFilter('campanhas')">Campanhas</button>
+                <button class="pill-filter"        data-table="posts"          onclick="setTableFilter('posts')">Posts</button>
+                <button class="pill-filter"        data-table="crescimento_conta" onclick="setTableFilter('crescimento_conta')">Crescimento</button>
+            </div>
+            <div class="ml-auto flex items-center gap-2">
+                <input type="date" id="filter-from" class="field" onchange="loadAudit()" placeholder="De">
+                <span class="text-slate-400 text-xs">→</span>
+                <input type="date" id="filter-to"   class="field" onchange="loadAudit()" placeholder="Até">
+            </div>
+        </div>
+    </div>
+
+    <!-- Stats strip -->
+    <div class="grid grid-cols-4 gap-4 mb-6" id="stats-strip">
+        <div class="card p-4 shadow-sm text-center"><p class="text-2xl font-bold text-slate-900" id="stat-total">—</p><p class="text-xs text-slate-400 mt-0.5">Total</p></div>
+        <div class="card p-4 shadow-sm text-center"><p class="text-2xl font-bold text-emerald-600" id="stat-insert">—</p><p class="text-xs text-slate-400 mt-0.5">Criações</p></div>
+        <div class="card p-4 shadow-sm text-center"><p class="text-2xl font-bold text-blue-600"    id="stat-update">—</p><p class="text-xs text-slate-400 mt-0.5">Edições</p></div>
+        <div class="card p-4 shadow-sm text-center"><p class="text-2xl font-bold text-red-500"     id="stat-delete">—</p><p class="text-xs text-slate-400 mt-0.5">Eliminações</p></div>
+    </div>
+
+    <!-- Loading -->
+    <div id="loading" class="text-center py-20 text-slate-400">
+        <div class="inline-block w-6 h-6 border-2 border-slate-200 border-t-blue-600 rounded-full animate-spin mb-3"></div>
+        <p class="text-sm">A carregar histórico...</p>
+    </div>
+
+    <!-- Empty -->
+    <div id="empty-state" class="hidden text-center py-20">
+        <p class="text-5xl mb-4">📋</p>
+        <h3 class="text-lg font-bold text-slate-900 mb-2">Sem registos</h3>
+        <p class="text-slate-500 text-sm">Nenhuma ação encontrada para os filtros selecionados.</p>
+    </div>
+
+    <!-- Timeline -->
+    <div id="audit-timeline" class="hidden tl-spine space-y-1 pl-1"></div>
+
+    <!-- Load more -->
+    <div id="load-more-wrap" class="hidden text-center mt-8">
+        <button onclick="loadMore()" id="btn-load-more"
+            class="px-6 py-2.5 bg-white border border-slate-200 hover:border-slate-300 text-slate-600 text-sm font-medium rounded-lg transition shadow-sm">
+            Carregar mais
+        </button>
+    </div>
+
+</main>
+
+<script src="supabase.js"></script>
+<script src="auth.js"></script>
+<script src="nav.js"></script>
+<script>
+    const PAGE_SIZE = 30;
+    let allEvents = [];
+    let actionFilter = 'all';
+    let tableFilter  = 'all';
+    let offset = 0;
+    let hasMore = false;
+
+    // ── TABLE CONFIG ───────────────────────────────────────────
+    const TABLE_CFG = {
+        campanhas:          { label:'Campanha',    icon:'⭐', color:'#f59e0b' },
+        posts:              { label:'Post',        icon:'📝', color:'#8b5cf6' },
+        crescimento_conta:  { label:'Crescimento', icon:'📈', color:'#10b981' },
+        profiles:           { label:'Perfil',      icon:'👤', color:'#6366f1' },
+    };
+
+    const ACTION_CFG = {
+        INSERT: { label:'Criou',    dotCls:'dot-insert', color:'#16a34a' },
+        UPDATE: { label:'Editou',   dotCls:'dot-update', color:'#2563eb' },
+        DELETE: { label:'Eliminou', dotCls:'dot-delete', color:'#dc2626' },
+    };
+
+    // Fields to ignore in diffs (noisy or irrelevant)
+    const IGNORE_FIELDS = new Set(['updated_at','created_at','id']);
+
+    // Human-readable field names
+    const FIELD_LABELS = {
+        nome:'Nome', descricao:'Descrição', plataforma:'Plataforma', status:'Status',
+        data_inicio:'Início', data_fim:'Fim', cor:'Cor', likes_objetivo:'Likes obj.',
+        comentarios_objetivo:'Coment. obj.', partilhas_objetivo:'Partilhas obj.',
+        seguidores_objetivo:'Seguidores obj.', budget:'Budget', cost_per_post:'Custo/post',
+        likes_real:'Likes reais', comentarios_real:'Coment. reais', partilhas_real:'Partilhas reais',
+        tipo:'Tipo', rede:'Rede', drive_link:'Link Drive', data_publicacao:'Data publicação',
+        seguidores:'Seguidores', likes:'Likes', comentarios:'Comentários', partilhas:'Partilhas',
+        alcance:'Alcance', data_registo:'Data registo', email:'Email', role:'Role',
+        campanha_id:'Campanha ID',
+    };
+
+    // ── INIT ───────────────────────────────────────────────────
+    async function init() {
+        const profile = await getUserProfile(); if (!profile) return;
+        if (profile.role !== 'admin') {
+            document.querySelector('main').innerHTML = `
+                <div class="text-center py-32">
+                    <p class="text-5xl mb-4">🔒</p>
+                    <h3 class="text-xl font-bold text-slate-900 mb-2">Acesso restrito</h3>
+                    <p class="text-slate-500 text-sm">Apenas admins podem ver o histórico de alterações.</p>
+                </div>`;
+            buildSidebar("audit.html", profile.role);
+            return;
+        }
+        buildSidebar("audit.html", profile.role);
+        loadAudit();
+    }
+
+    // ── FILTERS ────────────────────────────────────────────────
+    function setActionFilter(v) {
+        actionFilter = v;
+        document.querySelectorAll('#action-filters .pill-filter').forEach(b =>
+            b.classList.toggle('active', b.dataset.action === v));
+        renderTimeline();
+    }
+    function setTableFilter(v) {
+        tableFilter = v;
+        document.querySelectorAll('#table-filters .pill-filter').forEach(b =>
+            b.classList.toggle('active', b.dataset.table === v));
+        renderTimeline();
+    }
+
+    // ── LOAD ───────────────────────────────────────────────────
+    async function loadAudit() {
+        document.getElementById('loading').classList.remove('hidden');
+        document.getElementById('audit-timeline').classList.add('hidden');
+        document.getElementById('empty-state').classList.add('hidden');
+        document.getElementById('load-more-wrap').classList.add('hidden');
+        offset = 0; allEvents = [];
+        await fetchPage();
+    }
+
+    async function loadMore() {
+        const btn = document.getElementById('btn-load-more');
+        btn.textContent = 'A carregar...'; btn.disabled = true;
+        await fetchPage();
+        btn.textContent = 'Carregar mais'; btn.disabled = false;
+    }
+
+    async function fetchPage() {
+        const from = document.getElementById('filter-from').value;
+        const to   = document.getElementById('filter-to').value;
+
+        let q = supabaseClient.from('audit_log')
+            .select('*')
+            .order('created_at', { ascending: false })
+            .range(offset, offset + PAGE_SIZE - 1);
+
+        if (from) q = q.gte('created_at', from + 'T00:00:00');
+        if (to)   q = q.lte('created_at', to   + 'T23:59:59');
+
+        const { data, error } = await q;
+        document.getElementById('loading').classList.add('hidden');
+
+        if (error) {
+            document.getElementById('empty-state').classList.remove('hidden');
+            document.getElementById('empty-state').querySelector('p:last-child').textContent =
+                'Erro ao carregar: ' + error.message + '. Verifica se a tabela audit_log existe.';
+            return;
+        }
+
+        hasMore = data && data.length === PAGE_SIZE;
+        allEvents = [...allEvents, ...(data || [])];
+        offset += (data || []).length;
+        document.getElementById('load-more-wrap').classList.toggle('hidden', !hasMore);
+        renderTimeline();
+    }
+
+    // ── RENDER ─────────────────────────────────────────────────
+    function renderTimeline() {
+        // Filter
+        let events = allEvents.filter(e => {
+            if (actionFilter !== 'all' && e.action !== actionFilter) return false;
+            if (tableFilter  !== 'all' && e.table_name !== tableFilter) return false;
+            return true;
+        });
+
+        // Stats (on full allEvents for current date range, not client filter)
+        document.getElementById('stat-total').textContent  = allEvents.length + (hasMore?'+':'');
+        document.getElementById('stat-insert').textContent = allEvents.filter(e=>e.action==='INSERT').length;
+        document.getElementById('stat-update').textContent = allEvents.filter(e=>e.action==='UPDATE').length;
+        document.getElementById('stat-delete').textContent = allEvents.filter(e=>e.action==='DELETE').length;
+
+        const tl = document.getElementById('audit-timeline');
+        if (!events.length) {
+            tl.classList.add('hidden');
+            document.getElementById('empty-state').classList.remove('hidden');
+            return;
+        }
+        document.getElementById('empty-state').classList.add('hidden');
+        tl.classList.remove('hidden');
+
+        // Group by day
+        const groups = {};
+        events.forEach(e => {
+            const day = e.created_at.split('T')[0];
+            if (!groups[day]) groups[day] = [];
+            groups[day].push(e);
+        });
+
+        tl.innerHTML = Object.entries(groups).map(([day, evts]) => {
+            const dayLabel = formatDay(day);
+            return `
+                <div class="mb-2">
+                    <div class="flex items-center gap-3 mb-3 mt-2 pl-12">
+                        <span class="text-xs font-bold text-slate-500 uppercase tracking-wider">${dayLabel}</span>
+                        <div class="flex-1 h-px bg-slate-100"></div>
+                        <span class="text-xs text-slate-400">${evts.length} evento${evts.length!==1?'s':''}</span>
+                    </div>
+                    <div class="space-y-2">
+                        ${evts.map(renderEvent).join('')}
+                    </div>
+                </div>`;
+        }).join('');
+    }
+
+    function renderEvent(e) {
+        const tCfg  = TABLE_CFG[e.table_name]  || { label: e.table_name, icon:'📄', color:'#64748b' };
+        const aCfg  = ACTION_CFG[e.action]      || { label: e.action, dotCls:'dot-update', color:'#64748b' };
+        const time  = new Date(e.created_at).toLocaleTimeString('pt-PT', {hour:'2-digit', minute:'2-digit'});
+        const recName = getRecordName(e);
+        const diff  = e.action === 'UPDATE' ? buildDiff(e.old_data, e.new_data) : '';
+        const hasDiff = diff.length > 0;
+
+        return `<div class="flex items-start gap-3 group">
+            <div class="ev-dot ${aCfg.dotCls} mt-0.5">${tCfg.icon}</div>
+            <div class="flex-1 min-w-0 card p-4 shadow-sm hover:shadow-md transition-shadow">
+                <div class="flex items-start justify-between gap-2">
+                    <div class="flex-1 min-w-0">
+                        <div class="flex items-center gap-2 flex-wrap">
+                            <span class="text-xs font-bold px-1.5 py-0.5 rounded" style="background:${aCfg.color}18;color:${aCfg.color}">${aCfg.label}</span>
+                            <span class="text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 font-medium">${tCfg.label}</span>
+                            ${recName ? `<span class="text-sm font-semibold text-slate-900 truncate">${recName}</span>` : ''}
+                        </div>
+                        <div class="flex items-center gap-2 mt-1">
+                            <span class="text-xs text-slate-400">${e.user_email || 'utilizador desconhecido'}</span>
+                            <span class="text-slate-300">·</span>
+                            <span class="text-xs text-slate-400">${time}</span>
+                        </div>
+                    </div>
+                    ${hasDiff ? `<button onclick="toggleDiff(this)" class="text-xs text-slate-400 hover:text-slate-700 flex-shrink-0 border border-slate-200 rounded-lg px-2 py-1 hover:border-slate-300 transition">Ver alterações</button>` : ''}
+                </div>
+                ${hasDiff ? `<div class="diff-panel hidden mt-3 pt-3 border-t border-slate-100">${diff}</div>` : ''}
+                ${e.action === 'DELETE' && e.old_data ? `
+                    <div class="mt-2">
+                        <button onclick="toggleDiff(this)" class="text-xs text-red-400 hover:text-red-600 border border-red-200 rounded-lg px-2 py-1 transition">Ver dados eliminados</button>
+                        <div class="diff-panel hidden mt-3 pt-3 border-t border-red-100">
+                            ${buildDeleteSummary(e.old_data)}
+                        </div>
+                    </div>` : ''}
+            </div>
+        </div>`;
+    }
+
+    function toggleDiff(btn) {
+        const panel = btn.closest('.card').querySelector('.diff-panel');
+        if (!panel) return;
+        const isHidden = panel.classList.contains('hidden');
+        panel.classList.toggle('hidden', !isHidden);
+        btn.textContent = isHidden ? 'Ocultar' : (btn.textContent.includes('eliminados') ? 'Ver dados eliminados' : 'Ver alterações');
+    }
+
+    function buildDiff(oldData, newData) {
+        if (!oldData || !newData) return '';
+        const changes = [];
+        const keys = new Set([...Object.keys(oldData), ...Object.keys(newData)]);
+        keys.forEach(k => {
+            if (IGNORE_FIELDS.has(k)) return;
+            const ov = oldData[k], nv = newData[k];
+            if (JSON.stringify(ov) === JSON.stringify(nv)) return;
+            changes.push({ field: k, old: ov, new: nv });
+        });
+        if (!changes.length) return '';
+        return `<table class="diff-table">
+            <tr><th>Campo</th><th>Antes</th><th>Depois</th></tr>
+            ${changes.map(c => `<tr>
+                <td class="text-slate-500 font-medium">${FIELD_LABELS[c.field] || c.field}</td>
+                <td><span class="diff-old">${formatVal(c.old)}</span></td>
+                <td><span class="diff-new">${formatVal(c.new)}</span></td>
+            </tr>`).join('')}
+        </table>`;
+    }
+
+    function buildDeleteSummary(data) {
+        const entries = Object.entries(data).filter(([k]) => !IGNORE_FIELDS.has(k));
+        return `<table class="diff-table">
+            <tr><th>Campo</th><th>Valor</th></tr>
+            ${entries.map(([k,v]) => `<tr>
+                <td class="text-slate-500 font-medium">${FIELD_LABELS[k]||k}</td>
+                <td class="text-slate-700">${formatVal(v)}</td>
+            </tr>`).join('')}
+        </table>`;
+    }
+
+    function getRecordName(e) {
+        const d = e.new_data || e.old_data;
+        if (!d) return '';
+        return d.nome || d.email || d.data_registo || ('#' + (d.id || '').toString().slice(0,8));
+    }
+
+    function formatVal(v) {
+        if (v === null || v === undefined) return '<span class="text-slate-300">—</span>';
+        if (typeof v === 'boolean') return v ? 'Sim' : 'Não';
+        if (typeof v === 'object') return JSON.stringify(v);
+        return String(v).slice(0, 120);
+    }
+
+    function formatDay(dateStr) {
+        const d = new Date(dateStr + 'T12:00:00');
+        const today = new Date(); today.setHours(0,0,0,0);
+        const yesterday = new Date(today); yesterday.setDate(yesterday.getDate()-1);
+        if (d.toDateString() === today.toDateString()) return 'Hoje';
+        if (d.toDateString() === yesterday.toDateString()) return 'Ontem';
+        return d.toLocaleDateString('pt-PT', { weekday:'long', day:'numeric', month:'long' });
+    }
+
+    init();
+</script>
+</body>
+</html>

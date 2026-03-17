@@ -1,0 +1,105 @@
+/* ============================================================
+   AdMetrics — styles.css
+   CSS partilhado por todas as páginas.
+   Substitui o bloco <style> repetido em cada HTML.
+   Cada página mantém apenas os estilos exclusivos seus.
+   ============================================================ */
+
+/* ── Base ──────────────────────────────────────────────────── */
+body {
+    font-family: 'Inter', sans-serif;
+    background: #f8fafc;
+    color: #0f172a;
+}
+
+/* ── Componentes reutilizados ───────────────────────────────── */
+.card {
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+}
+
+.field {
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    color: #0f172a;
+    border-radius: 8px;
+    padding: 9px 12px;
+    width: 100%;
+    font-family: 'Inter', sans-serif;
+    font-size: 14px;
+}
+
+.field:focus {
+    outline: none;
+    border-color: #2563eb;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.08);
+}
+
+.field::placeholder { color: #94a3b8; }
+select.field option  { background: #fff; color: #0f172a; }
+textarea.field       { resize: vertical; }
+
+/* ── Progress bars ─────────────────────────────────────────── */
+.prog-bg   { background: #f1f5f9; border-radius: 999px; height: 5px; overflow: hidden; }
+.prog-fill { height: 100%; border-radius: 999px; transition: width 0.4s; background: #2563eb; }
+
+/* ── Timeline (partilhada entre campanhas e crescimento) ────── */
+.tl-wrap      { overflow-x: auto; padding-bottom: 4px; }
+.tl-grid      { display: grid; min-width: 500px; }
+.tl-day-label { font-size: 10px; color: #94a3b8; text-align: center; padding: 0 1px 3px; white-space: nowrap; }
+.tl-day-label.today { color: #2563eb; font-weight: 700; }
+.tl-bar {
+    height: 22px; border-radius: 4px; margin: 1px;
+    display: flex; align-items: center; overflow: hidden;
+    font-size: 10px; font-weight: 600; color: #fff;
+    padding: 0 6px; white-space: nowrap;
+}
+.tl-gap { height: 22px; margin: 1px; }
+
+/* ── Tab buttons ────────────────────────────────────────────── */
+.tab-btn {
+    padding: 6px 16px; border-radius: 8px;
+    font-size: 13px; font-weight: 600;
+    cursor: pointer; border: 1px solid #e2e8f0;
+    transition: all 0.15s;
+}
+.tab-btn.active  { background: #2563eb; color: #fff; border-color: #2563eb; }
+.tab-btn.inactive { background: #fff; color: #64748b; }
+.tab-btn.inactive:hover { border-color: #cbd5e1; color: #334155; }
+
+/* ── Filter / pill buttons ──────────────────────────────────── */
+.filter-btn {
+    padding: 5px 12px; border-radius: 999px;
+    font-size: 12px; font-weight: 600;
+    cursor: pointer; border: 1px solid #e2e8f0;
+    background: #fff; color: #64748b;
+    transition: all 0.15s;
+}
+.filter-btn:hover { border-color: #cbd5e1; color: #334155; }
+.filter-btn.active { background: #eff6ff; border-color: #2563eb; color: #2563eb; }
+
+.pill {
+    padding: 5px 12px; border-radius: 999px;
+    font-size: 12px; font-weight: 600;
+    cursor: pointer; border: 1px solid #e2e8f0;
+    background: #fff; color: #64748b;
+    transition: all 0.15s;
+}
+.pill:hover  { border-color: #cbd5e1; color: #334155; }
+.pill.active { background: #eff6ff; border-color: #2563eb; color: #2563eb; }
+
+/* ── Score ring (crescimento + campanhas) ───────────────────── */
+.score-ring {
+    width: 44px; height: 44px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px; font-weight: 700; flex-shrink: 0; border: 2px solid;
+}
+
+/* ── Search wrap ────────────────────────────────────────────── */
+.search-wrap             { position: relative; }
+.search-wrap svg         { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); pointer-events: none; }
+.search-wrap input       { padding-left: 34px; }
+
+/* ── Sidebar layout ─────────────────────────────────────────── */
+main.page-main { margin-left: 240px; min-height: 100vh; padding: 32px; }
